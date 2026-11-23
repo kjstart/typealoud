@@ -115,6 +115,7 @@
       },
       shortcut: {
         right: "Right {key}",
+        left: "Left {key}",
         recommended: "Recommended",
         moreCombos: "More combinations",
         lessCombos: "Fewer combinations",
@@ -127,6 +128,7 @@
           rightCtrl: "One hand. Some laptops have a Copilot key instead of a right Ctrl.",
           ctrlShiftWindows: "With several input methods installed, it also switches between them.",
           ctrlAltWindows: "On some European keyboard layouts this is AltGr, which types special characters.",
+          leftAlt: "One hand, no reaching for the right side. Alt+Tab and other Alt shortcuts may briefly flash the recording window.",
           current: "Your current shortcut.",
         },
         test: {
@@ -797,6 +799,7 @@
       },
       shortcut: {
         right: "右 {key}",
+        left: "左 {key}",
         recommended: "推荐",
         moreCombos: "更多组合",
         lessCombos: "收起",
@@ -809,6 +812,7 @@
           rightCtrl: "一只手就能按。有些笔记本的右 Ctrl 换成了 Copilot 键。",
           ctrlShiftWindows: "装了多个输入法时，会顺带切换输入法。",
           ctrlAltWindows: "在部分欧洲键盘布局里它就是 AltGr，用来打特殊字符。",
+          leftAlt: "一只手就能按，不用把手伸到右边。Alt+Tab 这类 Alt 组合键按下时，录音窗可能闪一下。",
           current: "你现在用的快捷键。",
         },
         test: {

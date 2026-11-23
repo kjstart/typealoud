@@ -55,7 +55,10 @@ pub use fallback::*;
 #[cfg(any(windows, test))]
 mod windows;
 #[cfg(windows)]
-pub use windows::{ensure_webview2_runtime, foreground_is_own_process, log_startup_task_state};
+pub use windows::{
+  ensure_webview2_runtime, foreground_is_own_process, log_startup_task_state,
+  suppress_alt_menu_activation, ALT_MASK_VK,
+};
 
 /// True for the Microsoft Store (MSIX) install on Windows. The Store installs
 /// and updates that package, so the app's own updater stays off there.

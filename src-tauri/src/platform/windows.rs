@@ -32,6 +32,36 @@ pub fn foreground_is_own_process() -> Option<bool> {
   Some(pid == std::process::id())
 }
 
+/// An unassigned virtual key (VK_E8). Typing it while Alt is held makes
+/// Windows see "Alt was used in a combination", so releasing Alt does not open
+/// the focused app's menu bar.
+#[cfg(windows)]
+pub const ALT_MASK_VK: u32 = 0xE8;
+
+/// Keeps a lone Alt press, used as the record shortcut, from activating the
+/// menu bar of the app being dictated into (its next keystrokes, including the
+/// inserted text, would otherwise go to the menu). Call while Alt is down. The
+/// hotkey listener ignores this key, so it never counts as a typed key.
+#[cfg(windows)]
+pub fn suppress_alt_menu_activation() {
+  use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput,
+  };
+
+  let key = |flags| INPUT {
+    r#type: INPUT_KEYBOARD,
+    Anonymous: INPUT_0 {
+      ki: KEYBDINPUT { wVk: ALT_MASK_VK as u16, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 },
+    },
+  };
+  let inputs = [key(0), key(KEYEVENTF_KEYUP)];
+  // Plain by-value structs; the array outlives the call.
+  let sent = unsafe { SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32) };
+  if sent != inputs.len() as u32 {
+    log::warn!("hotkey: could not inject the Alt menu mask key (sent {sent} of 2)");
+  }
+}
+
 /// Microsoft's Evergreen Bootstrapper, the small online installer for WebView2.
 #[cfg(windows)]
 const WEBVIEW2_DOWNLOAD_URL: &str = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";

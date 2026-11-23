@@ -46,13 +46,15 @@ struct RecordingLockEvent {
 }
 
 /// How a shortcut uses one modifier: not at all, either physical key, or only
-/// the right-hand one (single-key shortcuts such as the right Option key).
+/// the right-hand or left-hand one (single-key shortcuts such as the right
+/// Option key or the left Alt key).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum KeyUse {
   #[default]
   Unused,
   Either,
   RightOnly,
+  LeftOnly,
 }
 
 impl KeyUse {
@@ -61,6 +63,7 @@ impl KeyUse {
       KeyUse::Unused => !held.any(),
       KeyUse::Either => held.any(),
       KeyUse::RightOnly => held.right && !held.left,
+      KeyUse::LeftOnly => held.left && !held.right,
     }
   }
 
@@ -70,6 +73,7 @@ impl KeyUse {
       KeyUse::Unused => false,
       KeyUse::Either => held.any(),
       KeyUse::RightOnly => held.right,
+      KeyUse::LeftOnly => held.left,
     }
   }
 }
@@ -83,10 +87,11 @@ pub struct Shortcut {
 }
 
 impl Shortcut {
-  /// Accepts two or more modifiers ("Ctrl+Shift", "Ctrl+Meta"), or a single
-  /// right-hand Ctrl, Alt/Option or Meta/Command ("RightAlt"). A single left or
-  /// generic modifier would fire on every ordinary shortcut, and a lone Shift
-  /// toggles many input methods, so neither is a valid record shortcut.
+  /// Accepts two or more modifiers ("Ctrl+Shift", "Ctrl+Meta"), a single
+  /// right-hand Ctrl, Alt/Option or Meta/Command ("RightAlt"), or the single
+  /// left Alt ("LeftAlt", an opt-in for people who keep their right hand on the
+  /// mouse). Any other single left or generic modifier would fire on every
+  /// ordinary shortcut, and a lone Shift toggles many input methods.
   pub fn parse(value: &str) -> Option<Self> {
     let mut shortcut = Shortcut::default();
     for token in value.split('+') {
@@ -94,9 +99,10 @@ impl Shortcut {
       if token.is_empty() {
         continue;
       }
-      let (name, key_use) = match token.strip_prefix("right") {
-        Some(rest) => (rest.to_string(), KeyUse::RightOnly),
-        None => (token, KeyUse::Either),
+      let (name, key_use) = match (token.strip_prefix("right"), token.strip_prefix("left")) {
+        (Some(rest), _) => (rest.to_string(), KeyUse::RightOnly),
+        (_, Some(rest)) => (rest.to_string(), KeyUse::LeftOnly),
+        _ => (token, KeyUse::Either),
       };
       let slot = match name.as_str() {
         "ctrl" | "control" => &mut shortcut.ctrl,
@@ -113,7 +119,21 @@ impl Shortcut {
 
     let used = shortcut.uses();
     let single_right = used.len() == 1 && used[0] == KeyUse::RightOnly;
-    (used.len() >= 2 || single_right).then_some(shortcut)
+    let single_left_alt = shortcut.is_single_left_alt();
+    // A left-hand key inside a combination ("Ctrl+LeftAlt") is not offered.
+    let left_only_elsewhere = used.contains(&KeyUse::LeftOnly) && !single_left_alt;
+    (!left_only_elsewhere && (used.len() >= 2 || single_right || single_left_alt))
+      .then_some(shortcut)
+  }
+
+  /// The left Alt key on its own. Pressing and releasing Alt alone opens the
+  /// menu bar in Windows apps, which `platform::suppress_alt_menu_activation`
+  /// prevents once a recording starts.
+  pub fn is_single_left_alt(&self) -> bool {
+    self.alt == KeyUse::LeftOnly
+      && self.ctrl == KeyUse::Unused
+      && self.shift == KeyUse::Unused
+      && self.meta == KeyUse::Unused
   }
 
   fn uses(&self) -> Vec<KeyUse> {
@@ -132,6 +152,7 @@ impl Shortcut {
         KeyUse::Unused => None,
         KeyUse::Either => Some(name.to_string()),
         KeyUse::RightOnly => Some(format!("Right{name}")),
+        KeyUse::LeftOnly => Some(format!("Left{name}")),
       })
       .collect::<Vec<_>>()
       .join("+")
@@ -670,6 +691,12 @@ fn spawn_os_listener(handle: HotkeyHandle) {
     .spawn(move || {
       if let Err(error) = rdev::listen(move |event| {
         let key_event = match event.event_type {
+          // The key we inject ourselves to keep a lone Alt from opening the menu
+          // bar; to the state machine it would look like a typed key.
+          #[cfg(windows)]
+          rdev::EventType::KeyPress(Key::Unknown(code))
+          | rdev::EventType::KeyRelease(Key::Unknown(code))
+            if code == crate::platform::ALT_MASK_VK => None,
           rdev::EventType::KeyPress(key) => Some(KeyEvent::Press(key)),
           rdev::EventType::KeyRelease(key) => Some(KeyEvent::Release(key)),
           _ => None,
@@ -1001,6 +1028,10 @@ fn run_state_thread(app: AppHandle, rx: Receiver<HotkeyMsg>, initial_shortcut: S
     for action in state.drain_actions() {
       if action == Action::Start {
         probe_session = probe && main_window_focused(&app);
+        #[cfg(windows)]
+        if state.record_shortcut.is_single_left_alt() {
+          crate::platform::suppress_alt_menu_activation();
+        }
       }
       if probe_session {
         let event = ProbeEvent { action: Some(probe_action_label(action)), ..probe_keys(&state) };
@@ -1585,6 +1616,53 @@ mod tests {
     assert!(Shortcut::parse("RightShift").is_none());
     assert!(Shortcut::parse("Alt+RightAlt").is_none());
     assert_eq!(Shortcut::parse("Win+Ctrl").unwrap().canonical(), "Ctrl+Meta");
+  }
+
+  #[test]
+  fn the_left_alt_key_alone_is_an_opt_in_shortcut() {
+    assert_eq!(Shortcut::parse("LeftAlt").unwrap().canonical(), "LeftAlt");
+    assert_eq!(Shortcut::parse("leftoption").unwrap().canonical(), "LeftAlt");
+    assert!(Shortcut::parse("LeftAlt").unwrap().is_single_left_alt());
+    assert!(!Shortcut::parse("RightAlt").unwrap().is_single_left_alt());
+    // No other lone left key, and no left key inside a combination.
+    assert!(Shortcut::parse("LeftCtrl").is_none());
+    assert!(Shortcut::parse("LeftMeta").is_none());
+    assert!(Shortcut::parse("LeftShift").is_none());
+    assert!(Shortcut::parse("Ctrl+LeftAlt").is_none());
+    assert!(Shortcut::parse("Alt+LeftAlt").is_none());
+  }
+
+  #[test]
+  fn a_left_alt_shortcut_ignores_the_right_alt_key() {
+    let shortcut = Shortcut::parse("LeftAlt").unwrap();
+    let mut modifiers = ModifierState::default();
+    modifiers.press(Key::AltGr);
+    assert!(!modifiers.matches(&shortcut));
+    modifiers.release(Key::AltGr);
+    modifiers.press(Key::Alt);
+    assert!(modifiers.matches(&shortcut));
+    modifiers.press(Key::AltGr);
+    assert!(!modifiers.matches(&shortcut), "both Alt keys down is not the left key alone");
+  }
+
+  #[test]
+  fn left_alt_records_and_a_shortcut_with_it_is_not_a_dictation() {
+    let mut state = HotkeyState::new(Shortcut::parse("LeftAlt").unwrap());
+    let start = Instant::now();
+    // Alt+Tab: the Tab arrives inside the probation window and cancels.
+    state.handle_event(KeyEvent::Press(Key::Alt), start);
+    assert_eq!(state.drain_actions(), vec![Action::Start]);
+    state.handle_event(KeyEvent::NonModifierPress, start + ms(120));
+    assert_eq!(state.drain_actions(), vec![Action::Cancel]);
+    state.handle_event(KeyEvent::Release(Key::Alt), start + ms(200));
+    assert!(state.drain_actions().is_empty());
+
+    // Press and hold is an ordinary dictation.
+    state.handle_event(KeyEvent::Press(Key::Alt), start + ms(1000));
+    assert_eq!(state.drain_actions(), vec![Action::Start]);
+    state.handle_event(KeyEvent::Release(Key::Alt), start + ms(2500));
+    state.handle_tick(start + ms(2500) + STOP_DEBOUNCE);
+    assert_eq!(state.drain_actions(), vec![Action::Stop]);
   }
 
   #[test]

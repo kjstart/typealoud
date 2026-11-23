@@ -18,6 +18,7 @@
       { value: "RightCtrl", note: "rightCtrl" },
       { value: "Ctrl+Shift", note: "ctrlShiftWindows" },
       { value: "Ctrl+Alt", more: true, note: "ctrlAltWindows" },
+      { value: "LeftAlt", more: true, note: "leftAlt" },
     ],
     linux: [
       { value: "Ctrl+Shift", recommended: true },
@@ -42,6 +43,7 @@
   }
 
   // "Ctrl+RightAlt" -> [{ key: "ctrl", right: false }, { key: "alt", right: true }]
+  // A lone "LeftAlt" -> [{ key: "alt", right: false, left: true }]
   function parseKeys(shortcut) {
     return String(shortcut || "")
       .split("+")
@@ -49,8 +51,9 @@
       .filter(Boolean)
       .map((part) => {
         const right = part.startsWith("right") && part.length > 5;
-        const name = right ? part.slice(5) : part;
-        return { key: ALIASES[name] || name, right };
+        const left = part.startsWith("left") && part.length > 4;
+        const name = right ? part.slice(5) : left ? part.slice(4) : part;
+        return { key: ALIASES[name] || name, right, left };
       });
   }
 
@@ -65,21 +68,22 @@
     return words[key] || key;
   }
 
-  function withSide(name, right, translate) {
-    return right ? translate("shortcut.right", { key: name }) : name;
+  function withSide(name, right, translate, left = false) {
+    if (right) return translate("shortcut.right", { key: name });
+    return left ? translate("shortcut.left", { key: name }) : name;
   }
 
   // One label per keycap: Apple glyphs on macOS, words elsewhere.
   function keycaps(shortcut, os, translate) {
     const platform = normalizeOs(os);
-    return parseKeys(shortcut).map(({ key, right }) => withSide(keyName(key, platform, true), right, translate));
+    return parseKeys(shortcut).map(({ key, right, left }) => withSide(keyName(key, platform, true), right, translate, left));
   }
 
   // A plain-text label for running copy ("Right Option", "Ctrl + Win").
   function label(shortcut, os, translate) {
     const platform = normalizeOs(os);
     return parseKeys(shortcut)
-      .map(({ key, right }) => withSide(keyName(key, platform, false), right, translate))
+      .map(({ key, right, left }) => withSide(keyName(key, platform, false), right, translate, left))
       .join(" + ");
   }
 
@@ -116,12 +120,12 @@
   // picker puts the previous key back (see `confirmOneSided`).
   const CONFIRM_ONE_SIDED_MS = 20000;
 
-  // A single right-hand key ("RightAlt") only works when the keyboard reports
+  // A single one-sided key ("RightAlt", "LeftAlt") only works when the keyboard reports
   // left and right apart; some forwarded keyboards (screen sharing, shared
   // keyboard tools) don't, and then the key does nothing at all.
   function isOneSided(shortcut) {
     const keys = parseKeys(shortcut);
-    return keys.length === 1 && keys[0].right;
+    return keys.length === 1 && (keys[0].right || keys[0].left);
   }
 
   // A list of shortcut cards with a tester under it. The owner saves the
@@ -269,11 +273,11 @@
 
     function renderTester() {
       const downKeys = new Set(test.down);
-      caps.replaceChildren(...parseKeys(current).map(({ key, right }) => {
+      caps.replaceChildren(...parseKeys(current).map(({ key, right, left }) => {
         const kbd = document.createElement("span");
         kbd.className = "kbd shortcut-test-key";
         kbd.classList.toggle("down", downKeys.has(key));
-        kbd.textContent = withSide(keyName(key, platform, true), right, translate);
+        kbd.textContent = withSide(keyName(key, platform, true), right, translate, left);
         return kbd;
       }));
       // Without the permission no key can be heard, so showing the chosen

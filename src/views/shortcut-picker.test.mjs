@@ -66,3 +66,13 @@ test("only a single right-hand key needs to be seen working before it is kept", 
   assert.equal(isOneSided("Ctrl+Shift"), false);
   assert.equal(isOneSided(""), false);
 });
+
+test("Windows offers the left Alt key behind More combinations, labelled by side", () => {
+  const leftAlt = shortcuts.options("windows").find((option) => option.value === "LeftAlt");
+  assert.equal(leftAlt.more, true);
+  assert.equal(leftAlt.recommended, undefined);
+  assert.equal(shortcuts.options("macos").some((option) => option.value === "LeftAlt"), false);
+  const left = (key, vars) => (key === "shortcut.left" ? `Left ${vars.key}` : key);
+  assert.deepEqual([...shortcuts.keycaps("LeftAlt", "windows", left)], ["Left Alt"]);
+  assert.equal(shortcuts.label("LeftAlt", "windows", left), "Left Alt");
+});
