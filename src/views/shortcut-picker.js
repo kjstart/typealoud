@@ -19,6 +19,7 @@
       { value: "Ctrl+Shift", note: "ctrlShiftWindows" },
       { value: "Ctrl+Alt", more: true, note: "ctrlAltWindows" },
       { value: "LeftAlt", more: true, note: "leftAlt" },
+      { value: "LeftCtrl", more: true, note: "leftCtrl" },
     ],
     linux: [
       { value: "Ctrl+Shift", recommended: true },

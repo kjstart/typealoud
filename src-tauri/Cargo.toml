@@ -1,6 +1,6 @@
 [package]
 name = "typealoud"
-version = "1.25.1"
+version = "1.26.0"
 description = "Voice input method software"
 authors = ["Tao"]
 license = "GPL-3.0-only"
@@ -62,6 +62,8 @@ cpal = "0.15"
 enigo = "0.3.0"
 
 [target.'cfg(windows)'.dependencies]
+# grab (not listen) lets the hook swallow Alt's auto-repeat key-downs, see hotkey.rs.
+rdev = { version = "0.5", features = ["unstable_grab"] }
 arboard = { version = "3.6.1", default-features = false }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Storage_Packaging_Appx", "Win32_System_Registry", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 # WinRT StartupTask for "Start with system" in the Store package. Same version

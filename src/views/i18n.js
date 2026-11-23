@@ -129,6 +129,7 @@
           ctrlShiftWindows: "With several input methods installed, it also switches between them.",
           ctrlAltWindows: "On some European keyboard layouts this is AltGr, which types special characters.",
           leftAlt: "One hand, no reaching for the right side. Alt+Tab and other Alt shortcuts may briefly flash the recording window.",
+          leftCtrl: "One hand, no reaching for the right side. Ctrl+C, Ctrl+V and every other Ctrl shortcut flash the recording window, and a held Ctrl+key can record a moment before it is cancelled.",
           current: "Your current shortcut.",
         },
         test: {
@@ -813,6 +814,7 @@
           ctrlShiftWindows: "装了多个输入法时，会顺带切换输入法。",
           ctrlAltWindows: "在部分欧洲键盘布局里它就是 AltGr，用来打特殊字符。",
           leftAlt: "一只手就能按，不用把手伸到右边。Alt+Tab 这类 Alt 组合键按下时，录音窗可能闪一下。",
+          leftCtrl: "一只手就能按，不用把手伸到右边。Ctrl+C、Ctrl+V 等所有 Ctrl 组合键按下时录音窗都会闪一下，按住 Ctrl 再按别的键也可能先录一小会儿才取消。",
           current: "你现在用的快捷键。",
         },
         test: {

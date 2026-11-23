@@ -119,11 +119,20 @@ impl Shortcut {
 
     let used = shortcut.uses();
     let single_right = used.len() == 1 && used[0] == KeyUse::RightOnly;
-    let single_left_alt = shortcut.is_single_left_alt();
+    let single_left = shortcut.is_single_left_alt() || shortcut.is_single_left_ctrl();
     // A left-hand key inside a combination ("Ctrl+LeftAlt") is not offered.
-    let left_only_elsewhere = used.contains(&KeyUse::LeftOnly) && !single_left_alt;
-    (!left_only_elsewhere && (used.len() >= 2 || single_right || single_left_alt))
+    let left_only_elsewhere = used.contains(&KeyUse::LeftOnly) && !single_left;
+    (!left_only_elsewhere && (used.len() >= 2 || single_right || single_left))
       .then_some(shortcut)
+  }
+
+  /// The left Ctrl key on its own. Every Ctrl+C or Ctrl+V starts and then
+  /// cancels a recording, so this is an opt-in like LeftAlt.
+  pub fn is_single_left_ctrl(&self) -> bool {
+    self.ctrl == KeyUse::LeftOnly
+      && self.shift == KeyUse::Unused
+      && self.alt == KeyUse::Unused
+      && self.meta == KeyUse::Unused
   }
 
   /// The left Alt key on its own. Pressing and releasing Alt alone opens the
@@ -684,19 +693,81 @@ fn spawn_os_listener(handle: HotkeyHandle) {
     .expect("failed to spawn hotkey listener thread");
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Set while the record shortcut is the left Alt key alone: the hook then
+/// swallows Alt's auto-repeat key-downs (see `spawn_os_listener`).
+#[cfg(windows)]
+static SWALLOW_ALT_REPEAT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(windows)]
+fn publish_shortcut_flags(shortcut: &Shortcut) {
+  SWALLOW_ALT_REPEAT.store(shortcut.is_single_left_alt(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Windows: the low-level hook can swallow events, which `listen` cannot. A held
+/// Alt auto-repeats its key-down, and Electron/Chromium re-arms its "Alt alone
+/// toggles the menu bar" flag on every one, so releasing Alt after a long hold
+/// opened the menu bar and the inserted text became menu accelerators (the About
+/// window opened and the dictation was lost, 2026-11-23). While LeftAlt is the
+/// shortcut, only the first key-down of a hold reaches the applications; the
+/// mask key sent after it then disarms the flag for good.
+#[cfg(windows)]
+fn spawn_os_listener(handle: HotkeyHandle) {
+  thread::Builder::new()
+    .name("hotkey-rdev".into())
+    .spawn(move || {
+      // (alt is down, when its last key-down arrived). `grab` wants an `Fn`.
+      let alt = std::sync::Mutex::new((false, None::<Instant>));
+      if let Err(error) = rdev::grab(move |event| {
+        let key_event = match event.event_type {
+          // The key we inject ourselves to keep a lone Alt from opening the menu
+          // bar; to the state machine it would look like a typed key.
+          rdev::EventType::KeyPress(Key::Unknown(code))
+          | rdev::EventType::KeyRelease(Key::Unknown(code))
+            if code == crate::platform::ALT_MASK_VK => None,
+          rdev::EventType::KeyPress(Key::Alt) => {
+            let now = Instant::now();
+            // Auto-repeat follows the first press within the repeat delay; a
+            // longer gap means the key-up was missed, so treat it as a new press.
+            let mut alt = alt.lock().unwrap();
+            let repeat = alt.0 && alt.1.is_some_and(|t| now.duration_since(t) < ALT_REPEAT_GAP);
+            *alt = (true, Some(now));
+            if repeat && SWALLOW_ALT_REPEAT.load(std::sync::atomic::Ordering::Relaxed) {
+              return None;
+            }
+            Some(KeyEvent::Press(Key::Alt))
+          }
+          rdev::EventType::KeyRelease(Key::Alt) => {
+            alt.lock().unwrap().0 = false;
+            Some(KeyEvent::Release(Key::Alt))
+          }
+          rdev::EventType::KeyPress(key) => Some(KeyEvent::Press(key)),
+          rdev::EventType::KeyRelease(key) => Some(KeyEvent::Release(key)),
+          _ => None,
+        };
+
+        if let Some(key_event) = key_event {
+          let _ = handle.tx.send(HotkeyMsg::KeyEvent(key_event, None));
+        }
+        Some(event)
+      }) {
+        log::error!("global hotkey listener exited: {error:?}");
+      }
+    })
+    .expect("failed to spawn hotkey listener thread");
+}
+
+/// Longest gap between two Alt key-downs that still counts as one hold's
+/// auto-repeat (the initial repeat delay is at most about 500 ms).
+#[cfg(windows)]
+const ALT_REPEAT_GAP: Duration = Duration::from_millis(700);
+
+#[cfg(all(not(target_os = "macos"), not(windows)))]
 fn spawn_os_listener(handle: HotkeyHandle) {
   thread::Builder::new()
     .name("hotkey-rdev".into())
     .spawn(move || {
       if let Err(error) = rdev::listen(move |event| {
         let key_event = match event.event_type {
-          // The key we inject ourselves to keep a lone Alt from opening the menu
-          // bar; to the state machine it would look like a typed key.
-          #[cfg(windows)]
-          rdev::EventType::KeyPress(Key::Unknown(code))
-          | rdev::EventType::KeyRelease(Key::Unknown(code))
-            if code == crate::platform::ALT_MASK_VK => None,
           rdev::EventType::KeyPress(key) => Some(KeyEvent::Press(key)),
           rdev::EventType::KeyRelease(key) => Some(KeyEvent::Release(key)),
           _ => None,
@@ -935,6 +1006,8 @@ fn run_state_thread(app: AppHandle, rx: Receiver<HotkeyMsg>, initial_shortcut: S
   let record_shortcut = Shortcut::parse(&initial_shortcut)
     .or_else(|| Shortcut::parse(DEFAULT_RECORD_SHORTCUT))
     .expect("default record shortcut must parse");
+  #[cfg(windows)]
+  publish_shortcut_flags(&record_shortcut);
   let mut state = HotkeyState::new(record_shortcut);
   let mut trace = HoldTrace::default();
   // Probe mode: the tester is open. A gesture that starts while the main
@@ -967,9 +1040,8 @@ fn run_state_thread(app: AppHandle, rx: Receiver<HotkeyMsg>, initial_shortcut: S
       Ok(HotkeyMsg::KeyEvent(event, source_pid)) => {
         let was_held = state.combo_held();
         state.handle_event(event, now);
-        // Holding Alt auto-repeats its key-down, and Electron/Chromium re-arms
-        // its "Alt alone toggles the menu bar" flag on every one, so a single
-        // mask key sent at the start is not enough: send one after each press.
+        // Repeats never get here while LeftAlt is the shortcut (the hook
+        // swallows them), so this is one mask key per hold.
         #[cfg(windows)]
         if matches!(event, KeyEvent::Press(Key::Alt)) && state.record_shortcut.is_single_left_alt() {
           crate::platform::suppress_alt_menu_activation();
@@ -989,6 +1061,8 @@ fn run_state_thread(app: AppHandle, rx: Receiver<HotkeyMsg>, initial_shortcut: S
       }
       Ok(HotkeyMsg::UpdateShortcut(shortcut)) => {
         if let Some(parsed) = Shortcut::parse(&shortcut) {
+          #[cfg(windows)]
+          publish_shortcut_flags(&parsed);
           state.record_shortcut = parsed;
         }
         probe_last = None;
@@ -1627,9 +1701,13 @@ mod tests {
     assert_eq!(Shortcut::parse("leftoption").unwrap().canonical(), "LeftAlt");
     assert!(Shortcut::parse("LeftAlt").unwrap().is_single_left_alt());
     assert!(!Shortcut::parse("RightAlt").unwrap().is_single_left_alt());
+    // The left Ctrl key alone is the only other lone left key.
+    assert_eq!(Shortcut::parse("LeftCtrl").unwrap().canonical(), "LeftCtrl");
+    assert!(Shortcut::parse("LeftCtrl").unwrap().is_single_left_ctrl());
+    assert!(!Shortcut::parse("LeftAlt").unwrap().is_single_left_ctrl());
     // No other lone left key, and no left key inside a combination.
-    assert!(Shortcut::parse("LeftCtrl").is_none());
     assert!(Shortcut::parse("LeftMeta").is_none());
+    assert!(Shortcut::parse("Ctrl+LeftCtrl").is_none());
     assert!(Shortcut::parse("LeftShift").is_none());
     assert!(Shortcut::parse("Ctrl+LeftAlt").is_none());
     assert!(Shortcut::parse("Alt+LeftAlt").is_none());
