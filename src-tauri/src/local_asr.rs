@@ -1188,6 +1188,127 @@ static RESIDENT_STARTS: AtomicU64 = AtomicU64::new(0);
 const PREWARM_IDLE_TIMEOUT: Duration = Duration::from_secs(80);
 const CHAT_PROMPT: &[u8] = b"\n> ";
 
+/// Keep-warm (opt-in, off by default): a standby worker is a fresh, never-used
+/// model process kept loaded between dictations so the next hold starts without
+/// the load time. It is *not* a reused worker: the next dictation adopts it as
+/// its own lease and it is spent after that session, so the upstream reuse bug
+/// (see `repeats_previous`) cannot apply. A new standby is started when a
+/// session ends, and each one is released after the idle time the user chose.
+static KEEP_WARM_IDLE: Mutex<Option<Duration>> = Mutex::new(None);
+/// The Qwen model to keep warm; `None` when the selected engine is not local Qwen.
+static KEEP_WARM_MODEL: Mutex<Option<&'static str>> = Mutex::new(None);
+static STANDBY_WORKER: Mutex<Option<ResidentWorker>> = Mutex::new(None);
+static STANDBY_GENERATION: AtomicU64 = AtomicU64::new(0);
+static STANDBY_STARTING: AtomicBool = AtomicBool::new(false);
+
+/// Apply the keep-warm setting. `idle_minutes` 0 or no `model` turns it off and
+/// releases a standby worker; otherwise one is started if none is loaded.
+pub fn configure_keep_warm(idle_minutes: u32, model: Option<&'static str>) {
+  let idle = (idle_minutes > 0 && model.is_some())
+    .then(|| Duration::from_secs(u64::from(idle_minutes) * 60));
+  *KEEP_WARM_IDLE.lock().unwrap() = idle;
+  *KEEP_WARM_MODEL.lock().unwrap() = if idle.is_some() { model } else { None };
+  if idle.is_none() {
+    retire_standby_worker(None);
+  } else {
+    ensure_standby_worker();
+  }
+}
+
+fn retire_standby_worker(generation: Option<u64>) {
+  let mut slot = STANDBY_WORKER.lock().unwrap();
+  let retire = slot
+    .as_ref()
+    .is_some_and(|worker| generation.is_none() || generation == Some(worker.generation));
+  if retire {
+    if let Some(mut worker) = slot.take() {
+      let _ = worker.child.start_kill();
+    }
+  }
+}
+
+/// Start a standby worker in the background if keep-warm is on and none is
+/// loaded. It waits for the inference slot, so it never competes with a decode.
+fn ensure_standby_worker() {
+  let (Some(idle), Some(model)) = (*KEEP_WARM_IDLE.lock().unwrap(), *KEEP_WARM_MODEL.lock().unwrap())
+  else {
+    return;
+  };
+  if STANDBY_WORKER.lock().unwrap().is_some() || STANDBY_STARTING.swap(true, Ordering::AcqRel) {
+    return;
+  }
+  tauri::async_runtime::spawn(async move {
+    let result = start_standby_worker(idle, model).await;
+    STANDBY_STARTING.store(false, Ordering::Release);
+    if let Err(error) = result {
+      log::warn!("local-asr: standby worker could not start: {error:#}");
+    }
+  });
+}
+
+async fn start_standby_worker(idle: Duration, model: &'static str) -> Result<()> {
+  let _permit = LOCAL_INFERENCE
+    .acquire()
+    .await
+    .expect("local inference semaphore is never closed");
+  // The setting may have changed while this waited for the slot.
+  if *KEEP_WARM_MODEL.lock().unwrap() != Some(model) || STANDBY_WORKER.lock().unwrap().is_some() {
+    return Ok(());
+  }
+  let base = local_asr_dir()?;
+  ensure_bundled_runtime_at(&base).map_err(anyhow::Error::msg)?;
+  if !qwen_ready_at(&base, model) {
+    return Ok(());
+  }
+  let started = std::time::Instant::now();
+  let mut worker = ResidentWorker::spawn_selected(&base, CTX_FLOOR, None, model).await?;
+  let generation = STANDBY_GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
+  worker.generation = generation;
+  let runtime = worker.runtime.label();
+  {
+    let mut slot = STANDBY_WORKER.lock().unwrap();
+    // Turned off, or switched to another model, while the process was loading.
+    if *KEEP_WARM_MODEL.lock().unwrap() != Some(model) {
+      let _ = worker.child.start_kill();
+      return Ok(());
+    }
+    *slot = Some(worker);
+  }
+  log::info!(
+    "local-asr: standby worker ready model={model} runtime={runtime} load_ms={} idle_release_s={}",
+    started.elapsed().as_millis(),
+    idle.as_secs()
+  );
+  tauri::async_runtime::spawn(async move {
+    tokio::time::sleep(idle).await;
+    retire_standby_worker(Some(generation));
+  });
+  Ok(())
+}
+
+/// Hand the standby worker to a recording session as its own lease, when it
+/// matches what is needed now. A worker that does not match is released.
+fn adopt_standby_worker(
+  model: &'static str,
+  runtime: Runtime,
+  ctx_size: u32,
+  session_id: u64,
+) -> Option<ResidentWorker> {
+  let mut worker = STANDBY_WORKER.lock().unwrap().take()?;
+  if worker_identity_matches(worker.model, worker.runtime, model, runtime)
+    && worker.ctx_size == ctx_size
+    && !resident_session_finished(Some(session_id))
+    && worker.is_running()
+  {
+    worker.session_id = Some(session_id);
+    log::info!("local-asr: standby worker adopted session_id={session_id}");
+    Some(worker)
+  } else {
+    let _ = worker.child.start_kill();
+    None
+  }
+}
+
 fn worker_identity_matches(
   loaded_model: &str,
   loaded_runtime: Runtime,
@@ -1509,7 +1630,7 @@ pub fn finish_resident_session(session_id: u64) -> bool {
       finished.retain(|id| (*id >= FILE_SESSION_BASE) != file_range || *id >= floor);
     }
   }
-  if slot
+  let retired = if slot
     .as_ref()
     .is_some_and(|worker| worker.session_id == Some(session_id))
   {
@@ -1519,7 +1640,11 @@ pub fn finish_resident_session(session_id: u64) -> bool {
     true
   } else {
     false
-  }
+  };
+  drop(slot);
+  // The session's worker is spent; with keep-warm on, load the next one now.
+  ensure_standby_worker();
+  retired
 }
 
 /// Stop the warm local worker when TypeAloud exits, switches away from local, or
@@ -1538,6 +1663,7 @@ pub fn shutdown_resident_worker() {
   // kills itself instead of becoming resident again.
   RESIDENT_EPOCH.fetch_add(1, Ordering::Relaxed);
   retire_resident_worker(None);
+  retire_standby_worker(None);
 }
 
 fn schedule_resident_retirement(generation: u64, idle_timeout: Duration) {
@@ -1688,6 +1814,17 @@ async fn prewarm_resident_worker_inner(
       );
       return Ok(ResidentPrewarmOutcome::Reused);
     }
+  }
+
+  if let Some(mut worker) = adopt_standby_worker(model, selected_runtime(&base), CTX_FLOOR, session_id) {
+    worker.epoch = lease_epoch;
+    park_resident_worker_for(worker, PREWARM_IDLE_TIMEOUT);
+    log::info!(
+      "local-asr: prewarm outcome=adopted_standby model={model} ctx={} queue_ms={} resident_spawn_ms=0",
+      CTX_FLOOR,
+      queue_ms
+    );
+    return Ok(ResidentPrewarmOutcome::Reused);
   }
 
   let spawn_started = std::time::Instant::now();
@@ -1940,7 +2077,12 @@ async fn transcribe_wav_inner_for(
     None => {
       progress.enter("worker-start");
       let spawn_started = std::time::Instant::now();
-      let result = ResidentWorker::spawn_selected(&base, ctx_size, session_id, model).await;
+      let standby = session_id
+        .and_then(|id| adopt_standby_worker(model, selected_runtime(&base), ctx_size, id));
+      let result = match standby {
+        Some(worker) => Ok(worker),
+        None => ResidentWorker::spawn_selected(&base, ctx_size, session_id, model).await,
+      };
       resident_spawn_ms = Some(spawn_started.elapsed().as_millis());
       match result {
         Ok(worker) => Some(worker),

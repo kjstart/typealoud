@@ -750,6 +750,27 @@
               </div>
             </div>
 
+            <div class="setting-item hidden" id="localKeepWarmItem">
+              <div class="setting-info">
+                <div class="setting-title" id="localKeepWarmTitle" data-i18n="settings.localKeepWarm.title">Keep the model loaded</div>
+                <div class="setting-description" id="localKeepWarmDescription" data-i18n="settings.localKeepWarm.description">
+                  Keeps a ready copy of the local model in memory (or on the GPU) so the next dictation starts without the loading wait. It uses that memory the whole time, and is released after the idle time below.
+                </div>
+              </div>
+              <div class="setting-control">
+                <select class="input model-select" id="localKeepWarmMinutes" title="Release after" data-i18n="settings.localKeepWarm.minutesTitle" data-i18n-attr="title">
+                  <option value="5" data-i18n="settings.localKeepWarm.m5">Release after 5 min idle</option>
+                  <option value="10" data-i18n="settings.localKeepWarm.m10">Release after 10 min idle</option>
+                  <option value="30" data-i18n="settings.localKeepWarm.m30">Release after 30 min idle</option>
+                  <option value="60" data-i18n="settings.localKeepWarm.m60">Release after 1 hour idle</option>
+                </select>
+                <label class="switch">
+                  <input type="checkbox" id="localKeepWarmCheck" aria-labelledby="localKeepWarmTitle" aria-describedby="localKeepWarmDescription">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+
             <div class="setting-item hidden" id="localModelItem">
               <div class="setting-info">
                 <div class="setting-title" data-i18n="settings.localModel.title">Local model</div>

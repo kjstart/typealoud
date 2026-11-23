@@ -841,6 +841,10 @@ function toggleProviderFields(providerChoice) {
       "hidden",
       !gpuRuntimeSupported || ![LOCAL_QWEN_PROVIDER, LOCAL_QWEN_LARGE_PROVIDER].includes(configurationProvider)
     );
+  // Keeping a model loaded only makes sense for the Qwen engine.
+  document
+    .getElementById("localKeepWarmItem")
+    ?.classList.toggle("hidden", ![LOCAL_QWEN_PROVIDER, LOCAL_QWEN_LARGE_PROVIDER].includes(configurationProvider));
   fieldOpenRouter.classList.toggle("hidden", provider !== "openrouter");
   fieldOpenAI.classList.toggle("hidden", provider !== "openai");
   syncEngineDrawer();
@@ -2387,6 +2391,15 @@ async function loadSettings() {
     if (showLiveTextCheck) {
       showLiveTextCheck.checked = currentSettings.showLiveText === true;
     }
+    const keepWarmCheck = document.getElementById("localKeepWarmCheck");
+    if (keepWarmCheck) {
+      keepWarmCheck.checked = currentSettings.localKeepWarm === true;
+    }
+    setSelectValue(
+      document.getElementById("localKeepWarmMinutes"),
+      String(currentSettings.localKeepWarmMinutes || 10),
+      "10"
+    );
     const usageStatsCheck = document.getElementById("usageStatsCheck");
     if (usageStatsCheck) {
       usageStatsCheck.checked = currentSettings.usageStats !== false;
@@ -2617,6 +2630,11 @@ async function persistSettings(intent = null) {
         ?? currentSettings.removeFillerWords !== false,
       showLiveText: document.getElementById("showLiveTextCheck")?.checked
         ?? currentSettings.showLiveText === true,
+      localKeepWarm: document.getElementById("localKeepWarmCheck")?.checked
+        ?? currentSettings.localKeepWarm === true,
+      localKeepWarmMinutes: Number(
+        document.getElementById("localKeepWarmMinutes")?.value || currentSettings.localKeepWarmMinutes || 10
+      ),
       usageStats: document.getElementById("usageStatsCheck")?.checked
         ?? currentSettings.usageStats !== false,
       provider: target.provider,

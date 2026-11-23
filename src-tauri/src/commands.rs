@@ -650,6 +650,8 @@ pub fn save_settings(
     config.nemotron_latency_ms =
       settings::normalize_nemotron_latency_ms(config.nemotron_latency_ms);
     config.local_compute = settings::normalize_local_compute(&config.local_compute).into();
+    config.local_keep_warm_minutes =
+      settings::normalize_keep_warm_minutes(config.local_keep_warm_minutes);
     if config.provider == crate::local_asr::LOCAL_PROVIDER {
       config.model = crate::local_asr::normalize_local_model_id(&config.model).into();
     }
@@ -864,6 +866,18 @@ pub(crate) fn sync_local_runtime(app: &AppHandle, config: &AppConfig) {
   crate::local_asr::set_gpu_device(&config.local_gpu_device);
   let selected = crate::local_asr::normalize_local_model_id(&config.model);
   crate::local_asr::sync_selected_model(selected);
+  // Only the local Qwen engine has a model worth keeping loaded.
+  let warm_model = (config.local_keep_warm
+    && config.provider == crate::local_asr::LOCAL_PROVIDER
+    && matches!(
+      selected,
+      crate::local_asr::QWEN_MODEL_ID | crate::local_asr::QWEN_LARGE_MODEL_ID
+    ))
+  .then_some(selected);
+  crate::local_asr::configure_keep_warm(
+    settings::normalize_keep_warm_minutes(config.local_keep_warm_minutes),
+    warm_model,
+  );
   if config.provider == crate::local_asr::LOCAL_PROVIDER
     && selected == crate::local_asr::NEMOTRON_MODEL_ID
   {

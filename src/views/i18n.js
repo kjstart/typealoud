@@ -411,6 +411,16 @@
           title: "Remove filler words",
           description: "Drop hesitation sounds such as 嗯 and 呃. Interjections such as 啊 and 呀 stay.",
         },
+        localKeepWarm: {
+          title: "Keep the model loaded",
+          description:
+            "Keeps a ready copy of the local model in memory (or on the GPU) so the next dictation starts without the loading wait. It uses that memory the whole time, and is released after the idle time chosen here.",
+          minutesTitle: "Release after",
+          m5: "Release after 5 min idle",
+          m10: "Release after 10 min idle",
+          m30: "Release after 30 min idle",
+          m60: "Release after 1 hour idle",
+        },
         polish: {
           title: "AI polish",
           description:
@@ -1125,6 +1135,16 @@
         removeFillerWords: {
           title: "去掉语气词",
           description: "删掉停顿时的「嗯」「呃」，「啊」「呀」这类带语气的字会保留。",
+        },
+        localKeepWarm: {
+          title: "让本地模型一直待命",
+          description:
+            "在内存（或显卡）里常备一份加载好的本地模型，下一次听写不用再等加载。会一直占用这部分内存，空闲超过右边选的时间后自动释放。",
+          minutesTitle: "空闲多久后释放",
+          m5: "空闲 5 分钟后释放",
+          m10: "空闲 10 分钟后释放",
+          m30: "空闲 30 分钟后释放",
+          m60: "空闲 1 小时后释放",
         },
         polish: {
           title: "AI 润色",

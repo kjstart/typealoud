@@ -132,6 +132,11 @@ cloud provider (OpenRouter/OpenAI), and inserts the text into the focused app.
   - A worker's lease is one hotkey hold (`session_id`); never hand it to another dictation.
     `repeats_previous` must keep rejecting a verbatim repeat (upstream reuse bug).
   - Chunks stay ≤ 75 s so every chunk maps to ctx 2048 and one worker serves the whole session.
+  - Keep-warm (`local_keep_warm`, off by default, Qwen only): a *standby* worker is a fresh, never-decoded
+    process loaded after each session ends and adopted whole by the next session's prewarm or first decode
+    (`adopt_standby_worker`), so it never serves two dictations and the reuse rule above still holds. It is
+    released after `local_keep_warm_minutes` (5/10/30/60) and by `shutdown_resident_worker`; with it off
+    nothing changes. It waits for the inference slot, so it never competes with a decode.
   - Drain stdout and stderr concurrently. Partial text is visible progress, not streaming ASR.
   - Trust an extracted runtime only when its `.typealoud-runtime-sha256` stamp matches.
   - Qwen gets neither the language setting nor the dictionary prompt (term matching and replacement

@@ -76,6 +76,22 @@ pub fn normalize_nemotron_latency_ms(value: u32) -> u32 {
   }
 }
 
+/// Idle minutes after which a kept-warm local model is released. These are
+/// the choices Settings offers; anything else means the default.
+pub const KEEP_WARM_MINUTES_CHOICES: [u32; 4] = [5, 10, 30, 60];
+
+fn default_keep_warm_minutes() -> u32 {
+  10
+}
+
+pub fn normalize_keep_warm_minutes(value: u32) -> u32 {
+  if KEEP_WARM_MINUTES_CHOICES.contains(&value) {
+    value
+  } else {
+    default_keep_warm_minutes()
+  }
+}
+
 fn default_local_compute() -> String {
   crate::local_asr::ComputePreference::Auto.as_str().into()
 }
@@ -138,6 +154,13 @@ pub struct AppConfig {
   /// means the first one. Set by `set_gpu_device`, never by the settings form.
   #[serde(default)]
   pub local_gpu_device: String,
+  /// Keep the local Qwen model loaded between dictations (local_asr.rs
+  /// standby worker). Off by default: it holds memory (or VRAM) all the time.
+  #[serde(default)]
+  pub local_keep_warm: bool,
+  /// Minutes without dictation after which the kept-warm model is released.
+  #[serde(default = "default_keep_warm_minutes")]
+  pub local_keep_warm_minutes: u32,
   #[serde(default)]
   pub onboarding_completed: bool,
   /// Set once the user has picked a record shortcut in the picker or closed the
@@ -185,6 +208,8 @@ impl Default for AppConfig {
       nemotron_latency_ms: default_nemotron_latency_ms(),
       local_compute: default_local_compute(),
       local_gpu_device: String::new(),
+      local_keep_warm: false,
+      local_keep_warm_minutes: default_keep_warm_minutes(),
       onboarding_completed: false,
       shortcut_prompt_seen: false,
       qwen_model: String::new(),
@@ -249,6 +274,8 @@ pub struct SettingsPayload {
   pub local_compute: String,
   /// The chosen GPU's llama.cpp name, or "" for the first one.
   pub local_gpu_device: String,
+  pub local_keep_warm: bool,
+  pub local_keep_warm_minutes: u32,
   /// The OS the backend runs on ("macos" | "windows" | "linux"), so the frontend
   /// can choose OS-correct copy and modifier glyphs instead of relying on the
   /// deprecated navigator.platform.
@@ -315,6 +342,8 @@ impl SettingsPayload {
       nemotron_latency_ms: normalize_nemotron_latency_ms(config.nemotron_latency_ms),
       local_compute: normalize_local_compute(&config.local_compute).into(),
       local_gpu_device: config.local_gpu_device.clone(),
+      local_keep_warm: config.local_keep_warm,
+      local_keep_warm_minutes: normalize_keep_warm_minutes(config.local_keep_warm_minutes),
       gpu_runtime_supported: crate::local_asr::gpu_runtime_supported(),
       os: std::env::consts::OS.to_string(),
       is_dev: cfg!(debug_assertions),
@@ -666,6 +695,24 @@ mod tests {
       let payload = serde_json::to_value(SettingsPayload::from_config_with(&config, false)).unwrap();
       assert_eq!(payload["mergeSpelledLetters"], enabled);
     }
+  }
+
+  #[test]
+  fn keep_warm_is_off_by_default_and_only_offered_idle_times_are_kept() {
+    let config = AppConfig::default();
+    assert!(!config.local_keep_warm);
+    assert_eq!(config.local_keep_warm_minutes, 10);
+    // An old config file without the fields reads as off.
+    let old: AppConfig = serde_json::from_str("{}").unwrap();
+    assert!(!old.local_keep_warm);
+    for minutes in KEEP_WARM_MINUTES_CHOICES {
+      assert_eq!(normalize_keep_warm_minutes(minutes), minutes);
+    }
+    assert_eq!(normalize_keep_warm_minutes(0), 10);
+    assert_eq!(normalize_keep_warm_minutes(7), 10);
+    let payload = SettingsPayload::from_config_with(&config, true);
+    assert!(!payload.local_keep_warm);
+    assert_eq!(payload.local_keep_warm_minutes, 10);
   }
 
   #[test]
