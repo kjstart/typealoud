@@ -62,6 +62,21 @@ pub fn suppress_alt_menu_activation() {
   }
 }
 
+/// `suppress_alt_menu_activation` a moment after the Alt key-down, from a
+/// helper thread. Called straight from the hotkey thread the mask could reach
+/// the focused app before the real Alt key-down, which the low-level hook is
+/// still holding back at that point; the app then sees Alt last and arms its
+/// menu toggle again. Sent twice, since a second mask is harmless.
+#[cfg(windows)]
+pub fn suppress_alt_menu_activation_soon() {
+  let _ = std::thread::Builder::new().name("alt-mask".into()).spawn(|| {
+    std::thread::sleep(std::time::Duration::from_millis(40));
+    suppress_alt_menu_activation();
+    std::thread::sleep(std::time::Duration::from_millis(160));
+    suppress_alt_menu_activation();
+  });
+}
+
 /// Microsoft's Evergreen Bootstrapper, the small online installer for WebView2.
 #[cfg(windows)]
 const WEBVIEW2_DOWNLOAD_URL: &str = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";

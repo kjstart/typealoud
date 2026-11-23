@@ -1044,7 +1044,7 @@ fn run_state_thread(app: AppHandle, rx: Receiver<HotkeyMsg>, initial_shortcut: S
         // swallows them), so this is one mask key per hold.
         #[cfg(windows)]
         if matches!(event, KeyEvent::Press(Key::Alt)) && state.record_shortcut.is_single_left_alt() {
-          crate::platform::suppress_alt_menu_activation();
+          crate::platform::suppress_alt_menu_activation_soon();
         }
         if probe_session {
           // The tester's gestures are not dictations; keep them out of the trace.

@@ -57,7 +57,7 @@ mod windows;
 #[cfg(windows)]
 pub use windows::{
   ensure_webview2_runtime, foreground_is_own_process, log_startup_task_state,
-  suppress_alt_menu_activation, ALT_MASK_VK,
+  suppress_alt_menu_activation, suppress_alt_menu_activation_soon, ALT_MASK_VK,
 };
 
 /// True for the Microsoft Store (MSIX) install on Windows. The Store installs
