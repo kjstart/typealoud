@@ -157,6 +157,10 @@ pub struct AppConfig {
   /// (recording_archive.rs). No UI; set by hand for offline tests.
   #[serde(default)]
   pub debug_save_audio: bool,
+  /// AI polish (polish.rs). Off by default. Saved by `save_polish_settings`,
+  /// never by the main settings form, so `save_settings` carries it over.
+  #[serde(default)]
+  pub polish: crate::polish::PolishConfig,
 }
 
 impl Default for AppConfig {
@@ -186,6 +190,7 @@ impl Default for AppConfig {
       qwen_model: String::new(),
       usage_stats: default_usage_stats(),
       debug_save_audio: false,
+      polish: crate::polish::PolishConfig::default(),
     }
   }
 }

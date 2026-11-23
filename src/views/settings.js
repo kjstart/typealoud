@@ -1686,12 +1686,107 @@ function handleSettingsTabKeydown(event) {
   activateSettingsTab(SETTINGS_TABS[next], true);
 }
 
+// AI polish has its own commands (the endpoint key stays out of the main
+// settings form), so it commits on its own and never rides save-settings.
+function readPolishForm() {
+  const value = (id) => document.getElementById(id)?.value ?? "";
+  return {
+    enabled: !!document.getElementById("polishEnabled")?.checked,
+    baseUrl: value("polishBaseUrl"),
+    apiKey: value("polishApiKey"),
+    model: value("polishModel"),
+    intensity: value("polishIntensity") || "light",
+    commandKeyword: value("polishKeyword"),
+    extraPrompt: value("polishExtra"),
+    customPrompt: value("polishCustom"),
+  };
+}
+
+function fillPolishForm(polish) {
+  const set = (id, text) => {
+    const element = document.getElementById(id);
+    if (element) element.value = text ?? "";
+  };
+  const enabled = document.getElementById("polishEnabled");
+  if (enabled) enabled.checked = !!polish.enabled;
+  set("polishBaseUrl", polish.baseUrl);
+  set("polishApiKey", polish.apiKey);
+  set("polishModel", polish.model);
+  set("polishIntensity", polish.intensity || "light");
+  set("polishKeyword", polish.commandKeyword);
+  set("polishExtra", polish.extraPrompt);
+  set("polishCustom", polish.customPrompt);
+  document.getElementById("polishFields")?.classList.toggle("hidden", !polish.enabled);
+}
+
+function setPolishStatus(id, text) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = text;
+}
+
+async function loadPolishSettings() {
+  try {
+    fillPolishForm(await ipc.invoke("get-polish-settings"));
+  } catch (error) {
+    console.error("Failed to load AI polish settings:", error);
+  }
+}
+
+let polishSaveChain = Promise.resolve();
+function savePolishSettings() {
+  const polish = readPolishForm();
+  document.getElementById("polishFields")?.classList.toggle("hidden", !polish.enabled);
+  polishSaveChain = polishSaveChain.then(async () => {
+    try {
+      await ipc.invoke("save-polish-settings", polish);
+      setPolishStatus("polishStatus", translate("settings.polish.saved"));
+    } catch (error) {
+      console.error("Failed to save AI polish settings:", error);
+      setPolishStatus("polishStatus", translate("settings.polish.saveError", { error: error?.message || String(error) }));
+    }
+  });
+  return polishSaveChain;
+}
+
+async function testPolish() {
+  const polish = readPolishForm();
+  if (!polish.apiKey.trim()) {
+    setPolishStatus("polishTestResult", translate("settings.polish.keyMissing"));
+    return;
+  }
+  const button = document.getElementById("polishTestBtn");
+  if (button) button.disabled = true;
+  setPolishStatus("polishTestResult", translate("settings.polish.testing"));
+  try {
+    const sample = document.getElementById("polishSample")?.value || "";
+    setPolishStatus("polishTestResult", await ipc.invoke("test-polish", polish, sample));
+  } catch (error) {
+    setPolishStatus("polishTestResult", translate("settings.polish.testFailed", { error: error?.message || String(error) }));
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function bindPolishHandlers() {
+  const container = document.getElementById("polishSettings");
+  if (!container) return;
+  // The page-wide handlers would also rewrite the main settings for every edit.
+  for (const type of ["change", "input"]) {
+    container.addEventListener(type, (event) => {
+      event.stopPropagation();
+      if (type === "change") void savePolishSettings();
+    });
+  }
+  document.getElementById("polishTestBtn")?.addEventListener("click", () => void testPolish());
+}
+
 function bindEventHandlers() {
   if (pageEventsBound) {
     return;
   }
 
   watchSystemTheme();
+  bindPolishHandlers();
 
   const providerSelect = document.getElementById("providerSelect");
   const checkPermissionButton = document.getElementById("checkPermission");
@@ -2297,6 +2392,7 @@ async function loadSettings() {
       usageStatsCheck.checked = currentSettings.usageStats !== false;
     }
 
+    await loadPolishSettings();
     renderSettingChoices();
     await refreshLocalModelStatus();
     await refreshGpuRuntimeStatus();

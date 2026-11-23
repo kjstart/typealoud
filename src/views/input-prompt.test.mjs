@@ -2248,7 +2248,7 @@ test("history timeout preserves a complete final and late history never inserts 
   h.prompt.stopRecording();
   h.recorder.onstop();
   await settlePromises();
-  h.timers.fire(5000);
+  h.timers.fire(40000);
   await settlePromises();
   assert.deepEqual(h.inserted, ["complete final"]);
   assert.equal(h.prompt.transcriptionInProgressCount, 0);
@@ -2700,7 +2700,7 @@ test("recovery timeout retains content until its late durable acknowledgment arr
   assert.equal(save[1].text, "durable text");
   assert.equal(save[1].kind, "incomplete");
   assert.match(save[1].id, /^recovery-/);
-  h.timers.fire(5000);
+  h.timers.fire(40000);
   await settlePromises();
   assert.equal(h.prompt.recoverableTranscriptions.get(0).text, "durable text");
   saved.resolve("existing-history-id");
@@ -2866,7 +2866,7 @@ test("late batch persistence retries the same request id and keeps source audio 
   h.recorder.ondataavailable({ data: new Blob(["late complete container"]) });
   h.recorder.onstop();
   await settlePromises();
-  h.timers.fire(5000);
+  h.timers.fire(40000);
   await settlePromises();
   assert.ok(h.session.audioRecovery.blob.size > 0);
   assert.equal(h.prompt.transcriptionInProgressCount, 0);

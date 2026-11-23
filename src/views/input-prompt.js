@@ -42,7 +42,8 @@ const REMAINDER_VAD_TIMEOUT_MS = 1500;
 // Native transcription has its own 420 s whole-request deadline. Leave time
 // for IPC delivery without imposing one deadline on a multi-chunk recording.
 const TRANSCRIPTION_STAGE_TIMEOUT_MS = 450000;
-const HISTORY_STAGE_TIMEOUT_MS = 5000;
+// Covers the optional AI polish call, which polish.rs bounds at 30 s.
+const HISTORY_STAGE_TIMEOUT_MS = 40000;
 // A hold recording this long shows the double-tap tip, a few times at most and
 // never again once the user has locked a recording.
 const LOCK_TIP_AFTER_MS = 30000;

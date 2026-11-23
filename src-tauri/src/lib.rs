@@ -15,6 +15,7 @@ mod native_capture;
 mod nemotron_asr;
 mod scrub;
 mod platform;
+mod polish;
 mod recording_archive;
 mod settings;
 mod state;
@@ -278,6 +279,9 @@ pub fn run() {
       commands::cleanup_microphone,
       commands::cancel_transcription,
       commands::record_assembled_transcription,
+      commands::get_polish_settings,
+      commands::save_polish_settings,
+      commands::test_polish,
       commands::save_recovered_transcription,
       commands::start_live_transcription,
       commands::push_live_audio,

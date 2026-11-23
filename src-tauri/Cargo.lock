@@ -5560,7 +5560,7 @@ dependencies = [
 
 [[package]]
 name = "typealoud"
-version = "1.26.1"
+version = "1.27.0"
 dependencies = [
  "anyhow",
  "arboard",

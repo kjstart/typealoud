@@ -609,6 +609,111 @@
               </div>
             </div>
           </div>
+
+          <div class="setting-group" id="polishSettings">
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-title" id="polishEnabledTitle" data-i18n="settings.polish.title">AI polish</div>
+                <div class="setting-description" id="polishEnabledDescription" data-i18n="settings.polish.description">
+                  Send the finished text to an AI model you choose before it is inserted: removes filler words and keeps only the final wording after you correct yourself. Only text is sent, never audio.
+                </div>
+              </div>
+              <div class="setting-control">
+                <label class="switch">
+                  <input type="checkbox" id="polishEnabled" aria-labelledby="polishEnabledTitle" aria-describedby="polishEnabledDescription">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div id="polishFields" class="hidden">
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-title" data-i18n="settings.polish.baseUrl">Service address</div>
+                  <div class="setting-description" data-i18n="settings.polish.baseUrlHint">Any OpenAI-compatible service, for example https://api.deepseek.com or https://api.openai.com/v1.</div>
+                </div>
+                <div class="setting-control">
+                  <input type="text" class="input" id="polishBaseUrl" placeholder="https://api.deepseek.com" autocomplete="off" autocapitalize="off" spellcheck="false">
+                </div>
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-title" data-i18n="settings.polish.apiKey">API key</div>
+                </div>
+                <div class="setting-control">
+                  <input type="password" class="input api-key-input" id="polishApiKey" placeholder="API key" autocomplete="off" autocapitalize="off" spellcheck="false">
+                  <button type="button" class="reveal-btn material-icons" data-target="polishApiKey" aria-label="Show key" title="Show key" data-i18n="settings.apiKey.reveal" data-i18n-attr="aria-label,title">visibility</button>
+                </div>
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-title" data-i18n="settings.polish.model">Model</div>
+                </div>
+                <div class="setting-control">
+                  <input type="text" class="input" id="polishModel" placeholder="deepseek-v4-flash" autocomplete="off" autocapitalize="off" spellcheck="false">
+                </div>
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-title" data-i18n="settings.polish.intensity">Strength</div>
+                  <div class="setting-description" data-i18n="settings.polish.intensityHint">However strong, a correction such as “three o’clock, no, nine o’clock” keeps only the last wording.</div>
+                </div>
+                <div class="setting-control">
+                  <select class="input model-select" id="polishIntensity">
+                    <option value="light" data-i18n="settings.polish.intensityLight">Light: fillers and stutters only</option>
+                    <option value="standard" data-i18n="settings.polish.intensityStandard">Medium: also repetition and false starts</option>
+                    <option value="strong" data-i18n="settings.polish.intensityStrong">Strong: also trims rambling</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-title" data-i18n="settings.polish.keyword">Command word</div>
+                  <div class="setting-description" data-i18n="settings.polish.keywordHint">Start a dictation with this word and the first sentence after it becomes an instruction for the model, for example “Doubao, translate into English” and then the text. Leave empty to turn commands off.</div>
+                </div>
+                <div class="setting-control">
+                  <input type="text" class="input" id="polishKeyword" autocomplete="off" autocapitalize="off" spellcheck="false">
+                </div>
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-title" data-i18n="settings.polish.extra">Extra instructions</div>
+                  <div class="setting-description" data-i18n="settings.polish.extraHint">Added to the built-in prompt.</div>
+                </div>
+                <div class="setting-control">
+                  <textarea class="input polish-prompt" id="polishExtra" rows="3" spellcheck="false"></textarea>
+                </div>
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-title" data-i18n="settings.polish.custom">Replace the prompt</div>
+                  <div class="setting-description" data-i18n="settings.polish.customHint">When filled in, this replaces the built-in polish prompt and the strength setting. Commands keep their own prompt. Leave empty to use the built-in one.</div>
+                </div>
+                <div class="setting-control">
+                  <textarea class="input polish-prompt" id="polishCustom" rows="5" spellcheck="false"></textarea>
+                </div>
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-title" data-i18n="settings.polish.test">Try it</div>
+                  <div class="setting-description" id="polishTestResult" aria-live="polite"></div>
+                </div>
+                <div class="setting-control">
+                  <input type="text" class="input" id="polishSample" data-i18n="settings.polish.sampleText" data-i18n-attr="value" value="嗯，我们三点开会，不对，是九点开会。">
+                  <button class="btn btn-secondary" id="polishTestBtn" type="button" data-i18n="settings.polish.testButton">Try</button>
+                </div>
+              </div>
+              <div class="setting-description" id="polishStatus" aria-live="polite"></div>
+            </div>
+          </div>
+
           <details class="setting-group hidden" id="engineAdvanced">
             <summary class="setting-summary" data-i18n="settings.advanced">Advanced settings</summary>
             <div class="setting-item hidden" id="nemotronLatencyItem">

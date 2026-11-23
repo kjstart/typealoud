@@ -232,6 +232,17 @@ cloud provider (OpenRouter/OpenAI), and inserts the text into the focused app.
   ("Cloud", "cursor", "linked in"), judged by the embedded `data/english-words.txt`; identifiers,
   paths and URLs are skipped. A sound-alike made of real words ("parrot kit") belongs in
   `scrub.rs`'s `correct_known_terms` or a user rule, not here.
+- `polish.rs` — optional AI polish: one OpenAI-compatible Chat Completions call (default DeepSeek
+  `deepseek-v4-flash`, thinking disabled for DeepSeek) on the finished text, after `prepare_final_transcription`
+  and before the History write (`polish_final` in `commands.rs`; also manual retries, not the Files page).
+  Off by default; config lives in `AppConfig.polish`, edited only through `get/save_polish_settings`
+  (`save_settings` carries it over, and the key is main-window only). Standard mode removes fillers and keeps
+  the last wording of a self-correction (strength light/standard/strong, extra or replacement prompt); command
+  mode triggers on the user's keyword prefix, stripped by the program, with the first sentence as the
+  instruction. **Fails open**: any error, timeout or implausible answer (`accept`: empty, grown >1.3×, shrunk
+  below the strength's floor) keeps the unpolished text. Never log the text; History keeps `originalText`.
+  Polished standard text gets the dictionary rules and terms re-applied; command output does not. Changing
+  what is sent means updating `PRIVACY.md` in the same commit.
 - `filler.rs` — removes 嗯/呃 (and a standalone 额) together with their pause punctuation, keeping
   the strongest mark. A filler inside quotation marks (quoted speech is verbatim) or one that is
   listed, named or used as a word stays; when unsure, keep it. 啊/呀/哦 are never removed. Rules and the real transcripts behind them are in its header.

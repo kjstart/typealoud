@@ -411,6 +411,38 @@
           title: "Remove filler words",
           description: "Drop hesitation sounds such as 嗯 and 呃. Interjections such as 啊 and 呀 stay.",
         },
+        polish: {
+          title: "AI polish",
+          description:
+            "Send the finished text to an AI model you choose before it is inserted: removes filler words and keeps only the final wording after you correct yourself. Only text is sent, never audio.",
+          baseUrl: "Service address",
+          baseUrlHint:
+            "Any OpenAI-compatible service, for example https://api.deepseek.com or https://api.openai.com/v1.",
+          apiKey: "API key",
+          model: "Model",
+          intensity: "Strength",
+          intensityHint:
+            "However strong, a correction such as “three o’clock, no, nine o’clock” keeps only the last wording.",
+          intensityLight: "Light: fillers and stutters only",
+          intensityStandard: "Medium: also repetition and false starts",
+          intensityStrong: "Strong: also trims rambling",
+          keyword: "Command word",
+          keywordHint:
+            "Start a dictation with this word and the first sentence after it becomes an instruction for the model, for example “Doubao, translate into English” and then the text. Leave empty to turn commands off.",
+          extra: "Extra instructions",
+          extraHint: "Added to the built-in prompt.",
+          custom: "Replace the prompt",
+          customHint:
+            "When filled in, this replaces the built-in polish prompt and the strength setting. Commands keep their own prompt. Leave empty to use the built-in one.",
+          test: "Try it",
+          testButton: "Try",
+          testing: "Asking the model…",
+          sampleText: "Um, the meeting is at three, no, I mean nine.",
+          saved: "Saved",
+          saveError: "Could not save: {error}",
+          testFailed: "Failed: {error}",
+          keyMissing: "Enter the API key first.",
+        },
         mergeSpelledLetters: {
           title: "Merge spelled-out letters",
           description: "Join letters spelled one at a time, for example A P I → API.",
@@ -1093,6 +1125,37 @@
         removeFillerWords: {
           title: "去掉语气词",
           description: "删掉停顿时的「嗯」「呃」，「啊」「呀」这类带语气的字会保留。",
+        },
+        polish: {
+          title: "AI 润色",
+          description:
+            "上屏之前，把识别出的文字发给你选的 AI 模型整理一遍：去掉语气词，说话中途改口时只保留最后的说法。只发送文字，不发送录音。",
+          baseUrl: "服务地址",
+          baseUrlHint:
+            "任何兼容 OpenAI 接口的服务，例如 https://api.deepseek.com 或 https://api.openai.com/v1。",
+          apiKey: "API Key",
+          model: "模型",
+          intensity: "润色强度",
+          intensityHint: "不论强度，像「三点开会，不对，九点开会」这样的改口，都只保留最后的说法。",
+          intensityLight: "轻：只去语气词和结巴",
+          intensityStandard: "中：再去掉重复和说一半放弃的话",
+          intensityStrong: "强：再精简啰嗦的部分",
+          keyword: "指令词",
+          keywordHint:
+            "说话以这个词开头，后面的第一句话就是给模型的指令，例如「豆包，帮我翻译成英文」，再接着说正文。留空则关闭指令功能。",
+          extra: "追加要求",
+          extraHint: "追加在内置提示词后面。",
+          custom: "替换提示词",
+          customHint:
+            "填写后会取代内置的润色提示词和强度设置；指令模式仍用它自己的提示词。留空则使用内置提示词。",
+          test: "试一试",
+          testButton: "试一试",
+          testing: "正在请求模型…",
+          sampleText: "嗯，我们三点开会，不对，是九点开会。",
+          saved: "已保存",
+          saveError: "保存失败：{error}",
+          testFailed: "失败：{error}",
+          keyMissing: "请先填写 API Key。",
         },
         mergeSpelledLetters: {
           title: "自动合并拼读字母",

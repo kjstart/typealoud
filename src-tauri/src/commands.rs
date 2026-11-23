@@ -562,6 +562,59 @@ pub fn get_api_keys(window: tauri::WebviewWindow) -> Result<ApiKeys, String> {
   })
 }
 
+// AI polish settings (polish.rs). Like the API keys they stay out of
+// get_settings: the endpoint key is only for the main Settings page.
+#[tauri::command]
+pub fn get_polish_settings(window: tauri::WebviewWindow) -> Result<crate::polish::PolishConfig, String> {
+  if window.label() != "main" {
+    return Err("get_polish_settings is only available to the main Settings page".into());
+  }
+  Ok(settings::read_config().map_err(stringify_error)?.polish)
+}
+
+#[tauri::command]
+pub fn save_polish_settings(
+  window: tauri::WebviewWindow,
+  polish: crate::polish::PolishConfig,
+) -> Result<crate::polish::PolishConfig, String> {
+  if window.label() != "main" {
+    return Err("save_polish_settings is only available to the main Settings page".into());
+  }
+  let polish = polish.normalized().map_err(stringify_error)?;
+  log::info!(
+    "command:save_polish_settings enabled={} model={} intensity={} keyword_set={} custom_prompt={}",
+    polish.enabled,
+    polish.model,
+    polish.intensity,
+    !polish.command_keyword.is_empty(),
+    !polish.custom_prompt.trim().is_empty()
+  );
+  settings::mutate_config(|config| {
+    config.polish = polish.clone();
+    Ok(())
+  })
+  .map_err(stringify_error)?;
+  Ok(polish)
+}
+
+// The Settings page's "Try it": one real call with the form's unsaved values.
+// Unlike dictation it reports the failure instead of falling back.
+#[tauri::command]
+pub async fn test_polish(
+  window: tauri::WebviewWindow,
+  state: State<'_, AppState>,
+  polish: crate::polish::PolishConfig,
+  sample: String,
+) -> Result<String, String> {
+  if window.label() != "main" {
+    return Err("test_polish is only available to the main Settings page".into());
+  }
+  let polish = polish.normalized().map_err(stringify_error)?;
+  crate::polish::try_it(&state.http_client, &polish, &sample)
+    .await
+    .map_err(stringify_error)
+}
+
 #[tauri::command]
 pub fn save_settings(
   app: AppHandle,
@@ -587,6 +640,8 @@ pub fn save_settings(
     config.qwen_model = existing.qwen_model.clone();
     // Hand-set development flag with no form field.
     config.debug_save_audio = existing.debug_save_audio;
+    // Saved on its own by save_polish_settings.
+    config.polish = existing.polish.clone();
     // Saved on its own by set_gpu_device.
     config.local_gpu_device = existing.local_gpu_device.clone();
     // Set by set_record_shortcut and dismiss_shortcut_prompt; not a form field.
@@ -1038,17 +1093,50 @@ fn prepare_final_transcription(raw: &str) -> String {
   // letters and can override a built-in correction. Term matching comes last
   // and leaves a rule's wanted spelling alone, because that spelling is a term.
   let text = crate::scrub::finalize_transcription(raw, options);
-  let text = crate::dictionary::apply_replacements(&text, &crate::dictionary::replacements(&dictionary));
-  crate::terms::Terms::new(&crate::dictionary::terms(&dictionary)).correct(&text)
+  apply_user_vocabulary(&text, &dictionary)
 }
 
-fn record_successful_transcription(
+/// The dictionary's replacement rules, then term spelling. Runs last on every
+/// engine's text, and again on polished text (the model may respell a name).
+fn apply_user_vocabulary(text: &str, dictionary: &str) -> String {
+  let text = crate::dictionary::apply_replacements(text, &crate::dictionary::replacements(dictionary));
+  crate::terms::Terms::new(&crate::dictionary::terms(dictionary)).correct(&text)
+}
+
+/// AI polish of a finished text (polish.rs). `Some` only when polish is on and
+/// produced different text; every failure leaves the caller with `text`.
+async fn polish_final(app: &AppHandle, text: &str) -> Option<String> {
+  if text.trim().is_empty() {
+    return None;
+  }
+  let config = settings::read_config().ok()?;
+  if !config.polish.is_active() {
+    return None;
+  }
+  let client = app.state::<AppState>().http_client.clone();
+  match crate::polish::polish(&client, &config.polish, text).await {
+    crate::polish::Outcome::Polished(polished, mode) => {
+      // A command's answer (a translation, a draft) is not dictated text, so
+      // the dictionary's spellings are not forced onto it.
+      let polished = match mode {
+        crate::polish::Mode::Standard => apply_user_vocabulary(&polished, &config.dictionary),
+        crate::polish::Mode::Command => polished,
+      };
+      (polished != text).then_some(polished)
+    }
+    crate::polish::Outcome::Unchanged(_) => None,
+  }
+}
+
+async fn record_successful_transcription(
   app: &AppHandle,
   raw: &str,
   failure_id: Option<&str>,
   audio_for_debug: Option<(Vec<u8>, String)>,
 ) -> String {
-  let text = prepare_final_transcription(raw);
+  let unpolished = prepare_final_transcription(raw);
+  let polished = polish_final(app, &unpolished).await;
+  let text = polished.clone().unwrap_or_else(|| unpolished.clone());
   if text != raw {
     log::info!(
       "transcribe: postprocessed final text ({} -> {} chars)",
@@ -1068,7 +1156,11 @@ fn record_successful_transcription(
   // Resolve a prior failure or append the success in one locked History write.
   let mut debug_entry_id = None;
   let saved = history::record_transcription(&text, failure_id, || {
-    let entry = activity_entry(&text, true, None);
+    let mut entry = activity_entry(&text, true, None);
+    if polished.is_some() {
+      // Keep what the engine said so a polish the user dislikes can be undone.
+      entry["originalText"] = json!(unpolished);
+    }
     debug_entry_id = entry["id"].as_str().map(str::to_owned);
     entry
   });
@@ -1094,8 +1186,8 @@ fn record_successful_transcription(
 /// text so the inserted string and the history row cannot drift apart, matching
 /// what transcribe_audio returns on the unchunked path.
 #[tauri::command]
-pub fn record_assembled_transcription(app: AppHandle, text: String) -> String {
-  record_successful_transcription(&app, &text, None, None)
+pub async fn record_assembled_transcription(app: AppHandle, text: String) -> String {
+  record_successful_transcription(&app, &text, None, None).await
 }
 
 // Recovery has a strict persistence acknowledgement, unlike the best-effort
@@ -1172,7 +1264,7 @@ pub async fn finish_live_transcription(
     return Ok(crate::scrub::scrub_transcription(&raw));
   }
   // Nemotron's live session has no retried upload behind it, so no row to resolve.
-  Ok(record_successful_transcription(&app, &raw, None, None))
+  Ok(record_successful_transcription(&app, &raw, None, None).await)
 }
 
 #[tauri::command]
@@ -1384,7 +1476,7 @@ pub async fn transcribe_audio(
       &raw,
       failure_id.as_deref(),
       audio_for_recovery.filter(|_| cfg!(debug_assertions)).map(|audio| (audio, mime.clone())),
-    )),
+    ).await),
     Err(error) => {
       if is_cancellation_error(&error) {
         return Err("TRANSCRIPTION_CANCELLED".into());
@@ -2463,6 +2555,7 @@ pub async fn retranscribe_pending(
     }
   };
   let text = prepare_final_transcription(&raw);
+  let text = polish_final(&app, &text).await.unwrap_or(text);
 
   if !history::finish_pending_transcription(&id, &text).map_err(|error| {
     log::warn!("failed to save retry result: {error:#}");
