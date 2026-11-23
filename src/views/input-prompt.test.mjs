@@ -337,6 +337,30 @@ test("live preview text stays hidden unless Settings turns it on", () => {
   assert.deepEqual(previews, ["now on"]);
 });
 
+test("the finished text is not previewed on release unless live text is on", () => {
+  const VoiceInputPrompt = loadVoiceInputPrompt();
+  const previews = [];
+  const prompt = createBarePrompt(VoiceInputPrompt, {
+    recordingSessionId: 3,
+    isRecording: false,
+    starting: false,
+    recordingSessions: new Map(),
+    cancelledTranscriptionSessionIds: new Set(),
+    pendingInsertionsById: new Map(),
+    isSessionCancelled() { return false; },
+    retryRecoveryPersistence() {},
+    setTranscriptionPreview(text) { previews.push(text); },
+  });
+
+  prompt.storeTranscriptionResult(3, "final text");
+  assert.deepEqual(previews, []);
+  assert.equal(prompt.pendingInsertionsById.get(3), "final text", "insertion still gets the text");
+
+  prompt.showLiveText = true;
+  prompt.storeTranscriptionResult(3, "final text");
+  assert.deepEqual(previews, ["final text"]);
+});
+
 test("Nemotron partials render during recording but not after the session is idle", () => {
   const handlers = new Map();
   const VoiceInputPrompt = loadVoiceInputPrompt({

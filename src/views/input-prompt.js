@@ -1301,7 +1301,7 @@ class VoiceInputPrompt {
     if (this.cancelledTranscriptionSessionIds.has(sessionId) || this.isSessionCancelled(session)) return;
     this.retryRecoveryPersistence();
     this.pendingInsertionsById.set(sessionId, transcription);
-    if (sessionId === this.recordingSessionId && !this.isRecording && !this.starting) {
+    if (this.showLiveText && sessionId === this.recordingSessionId && !this.isRecording && !this.starting) {
       this.setTranscriptionPreview(transcription);
     }
   }
