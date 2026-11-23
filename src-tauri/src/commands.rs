@@ -1466,6 +1466,12 @@ pub async fn type_text(
   // Err: that is the same graceful path as any failed insert, and the
   // transcription is already in History either way.
   let inserted_chars = text.chars().count();
+  #[cfg(windows)]
+  log::info!(
+    target: "typealoud_lifecycle",
+    "insert foreground_is_own_process={:?}",
+    platform::foreground_is_own_process()
+  );
   let check_focus = !skip_focus_check.unwrap_or(false);
   let outcome = match tokio::task::spawn_blocking(move || platform::insert_text(&text, check_focus)).await {
     Ok(result) => result,

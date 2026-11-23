@@ -13,6 +13,25 @@ const RUN_VALUE_NAME: &str = "TypeAloud";
 #[cfg(windows)]
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 
+/// Whether the window that currently owns the keyboard belongs to this very
+/// process. Synthetic typing goes to the foreground window, so when the
+/// floating prompt (or any TypeAloud window) took the foreground, the text lands
+/// there and the app the user is dictating into never sees it. `None` when there
+/// is no foreground window.
+#[cfg(windows)]
+pub fn foreground_is_own_process() -> Option<bool> {
+  use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
+  // Plain Win32 queries with no pointers kept beyond the call.
+  let hwnd = unsafe { GetForegroundWindow() };
+  if hwnd.is_null() {
+    return None;
+  }
+  let mut pid: u32 = 0;
+  unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+  Some(pid == std::process::id())
+}
+
 /// Microsoft's Evergreen Bootstrapper, the small online installer for WebView2.
 #[cfg(windows)]
 const WEBVIEW2_DOWNLOAD_URL: &str = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";

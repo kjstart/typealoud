@@ -976,13 +976,23 @@ fn run_state_thread(app: AppHandle, rx: Receiver<HotkeyMsg>, initial_shortcut: S
 
     #[cfg(windows)]
     if state.any_modifier_down() {
-      let missed = state.resync_released(windows_modifier_state(), now);
+      let believed = state.modifiers;
+      let actual = windows_modifier_state();
+      let missed = state.resync_released(actual, now);
       if !missed.is_empty() {
+        // Which side the hook believed held against what Windows reports, and
+        // whether one of our own windows owns the keyboard: the evidence that
+        // tells a real lost key-up from a misread key state.
         log::info!(
           target: "typealoud_lifecycle",
-          "hotkey missed_key_up keys={} recording={}",
+          "hotkey missed_key_up keys={} recording={} believed_ctrl=L{}R{} actual_ctrl=L{}R{} foreground_is_own_process={:?}",
           missed.iter().map(|key| key_label(*key)).collect::<Vec<_>>().join("+"),
           state.is_recording,
+          believed.ctrl.left as u8,
+          believed.ctrl.right as u8,
+          actual.ctrl.left as u8,
+          actual.ctrl.right as u8,
+          crate::platform::foreground_is_own_process(),
         );
       }
     }

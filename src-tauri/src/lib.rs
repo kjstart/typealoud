@@ -232,6 +232,18 @@ pub fn run() {
         glass::install_main_backdrop(&window);
       }
 
+      // Showing the floating prompt must never take the keyboard from the app
+      // being dictated into: with the prompt in the foreground the caret vanishes
+      // there and the synthetic typing lands in the prompt instead. Windows may
+      // activate a window of ours on `show()` when this process was recently
+      // used (e.g. the main window was open), so mark both as non-activating.
+      #[cfg(windows)]
+      for label in ["input-prompt", "ax-cloud"] {
+        if let Some(window) = app.get_webview_window(label) {
+          let _ = window.set_focusable(false);
+        }
+      }
+
       // The one-time shortcut prompt lives in the main window, so it opens even
       // for an install set to start hidden.
       if !config.start_minimized || settings::shortcut_prompt_due(&config) {
