@@ -172,6 +172,10 @@ cloud provider (OpenRouter/OpenAI), and inserts the text into the focused app.
   On macOS and Windows an install still on one of the two original shortcuts (`Ctrl+Shift`,
   `Ctrl+Alt`) is shown the picker once in the main window (`settings::shortcut_prompt_due`);
   picking a key or closing it sets `shortcut_prompt_seen`.
+  `CapsLock` alone is a Windows-only opt-in: the `rdev::grab` hook swallows the key (so holding it records without
+  toggling the lock) and `take_caps_replay` owes one replayed toggle after every press shorter than `CANCEL_THRESHOLD`,
+  except the press that stops a locked recording (the two lock taps already toggled twice). Replayed events pass the
+  hook through `CAPS_REPLAY_PENDING`. `GetAsyncKeyState` never sees a swallowed key, so the key-up resync must not poll it.
   It emits start/stop/cancel events. While the shortcut tester is open (`set_hotkey_probe`, the
   onboarding shortcut step and Settings) and the main window has focus, gestures go to the
   `hotkey-probe` event instead of recording. `STOP_DEBOUNCE` (250 ms) absorbs an accidental

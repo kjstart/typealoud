@@ -77,6 +77,15 @@ test("Windows offers the left Ctrl key behind More combinations, labelled by sid
   assert.equal(shortcuts.isOneSided("LeftCtrl"), true);
 });
 
+test("Windows offers Caps Lock behind More combinations, as a single keycap", () => {
+  const caps = shortcuts.options("windows").find((option) => option.value === "CapsLock");
+  assert.equal(caps.more, true);
+  assert.equal(caps.recommended, undefined);
+  assert.equal(shortcuts.options("macos").some((option) => option.value === "CapsLock"), false);
+  assert.equal(shortcuts.keycaps("CapsLock", "windows", (key) => key).join("|"), "Caps Lock");
+  assert.equal(shortcuts.isOneSided("CapsLock"), false);
+});
+
 test("Windows offers the left Alt key behind More combinations, labelled by side", () => {
   const leftAlt = shortcuts.options("windows").find((option) => option.value === "LeftAlt");
   assert.equal(leftAlt.more, true);

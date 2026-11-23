@@ -84,6 +84,8 @@ pub struct Shortcut {
   pub shift: KeyUse,
   pub alt: KeyUse,
   pub meta: KeyUse,
+  /// The Caps Lock key on its own (Windows only; see `is_caps_lock`).
+  pub caps: bool,
 }
 
 impl Shortcut {
@@ -93,6 +95,10 @@ impl Shortcut {
   /// mouse). Any other single left or generic modifier would fire on every
   /// ordinary shortcut, and a lone Shift toggles many input methods.
   pub fn parse(value: &str) -> Option<Self> {
+    if matches!(value.trim().to_ascii_lowercase().as_str(), "capslock" | "caps") {
+      // Only Windows can swallow the key and replay its toggle (see `spawn_os_listener`).
+      return cfg!(windows).then(|| Shortcut { caps: true, ..Shortcut::default() });
+    }
     let mut shortcut = Shortcut::default();
     for token in value.split('+') {
       let token = token.trim().to_ascii_lowercase();
@@ -126,6 +132,13 @@ impl Shortcut {
       .then_some(shortcut)
   }
 
+  /// The Caps Lock key on its own, an opt-in on Windows. The hook swallows the
+  /// key so holding it records without toggling the lock; a short press (under
+  /// CANCEL_THRESHOLD) replays one toggle, so tapping still switches case.
+  pub fn is_caps_lock(&self) -> bool {
+    self.caps
+  }
+
   /// The left Ctrl key on its own. Every Ctrl+C or Ctrl+V starts and then
   /// cancels a recording, so this is an opt-in like LeftAlt.
   pub fn is_single_left_ctrl(&self) -> bool {
@@ -155,6 +168,9 @@ impl Shortcut {
   /// The stored spelling: modifiers in Ctrl, Shift, Alt, Meta order, a
   /// right-hand one prefixed with "Right" ("Ctrl+Meta", "RightAlt").
   pub fn canonical(&self) -> String {
+    if self.caps {
+      return "CapsLock".to_string();
+    }
     [(self.ctrl, "Ctrl"), (self.shift, "Shift"), (self.alt, "Alt"), (self.meta, "Meta")]
       .into_iter()
       .filter_map(|(key_use, name)| match key_use {
@@ -187,6 +203,8 @@ pub struct ModifierState {
   pub shift: Sides,
   pub alt: Sides,
   pub meta: Sides,
+  /// Caps Lock, tracked only while it is the record shortcut.
+  pub caps: bool,
 }
 
 impl ModifierState {
@@ -200,6 +218,10 @@ impl ModifierState {
 
   // rdev reports the right Alt as AltGr; the macOS tap maps right Option to it.
   fn set(&mut self, key: Key, down: bool) -> bool {
+    if key == Key::CapsLock {
+      self.caps = down;
+      return true;
+    }
     let side = match key {
       Key::ControlLeft => &mut self.ctrl.left,
       Key::ControlRight => &mut self.ctrl.right,
@@ -216,7 +238,8 @@ impl ModifierState {
   }
 
   pub fn matches(&self, shortcut: &Shortcut) -> bool {
-    shortcut.ctrl.matches(self.ctrl)
+    shortcut.caps == self.caps
+      && shortcut.ctrl.matches(self.ctrl)
       && shortcut.shift.matches(self.shift)
       && shortcut.alt.matches(self.alt)
       && shortcut.meta.matches(self.meta)
@@ -224,7 +247,8 @@ impl ModifierState {
 
   /// No key the shortcut uses is down any more.
   pub fn shortcut_keys_up(&self, shortcut: &Shortcut) -> bool {
-    !(shortcut.ctrl.is_down(self.ctrl)
+    !((shortcut.caps && self.caps)
+      || shortcut.ctrl.is_down(self.ctrl)
       || shortcut.shift.is_down(self.shift)
       || shortcut.alt.is_down(self.alt)
       || shortcut.meta.is_down(self.meta))
@@ -296,7 +320,7 @@ struct ProbeEvent {
 
 fn probe_keys(state: &HotkeyState) -> ProbeEvent {
   let (shortcut, held) = (&state.record_shortcut, &state.modifiers);
-  let down = [
+  let mut down: Vec<&'static str> = [
     (shortcut.ctrl, held.ctrl, "ctrl"),
     (shortcut.shift, held.shift, "shift"),
     (shortcut.alt, held.alt, "alt"),
@@ -306,6 +330,9 @@ fn probe_keys(state: &HotkeyState) -> ProbeEvent {
   .filter(|(key_use, sides, _)| key_use.is_down(*sides))
   .map(|(_, _, name)| name)
   .collect();
+  if shortcut.caps && held.caps {
+    down.push("caps");
+  }
   ProbeEvent { held: state.combo_held(), down, action: None }
 }
 
@@ -373,6 +400,11 @@ pub struct HotkeyState {
   last_key_event_at: Option<Instant>,
   /// Keys the previous keyboard check already found up while held here.
   resync_suspects: Vec<Key>,
+  /// When the Caps Lock key (the record shortcut) last went down.
+  caps_pressed_at: Option<Instant>,
+  /// A short Caps Lock press ended: the hook swallowed it, so one toggle is
+  /// owed to the system (see `take_caps_replay`).
+  replay_caps: bool,
 }
 
 impl HotkeyState {
@@ -390,7 +422,18 @@ impl HotkeyState {
       pending: Vec::new(),
       last_key_event_at: None,
       resync_suspects: Vec::new(),
+      caps_pressed_at: None,
+      replay_caps: false,
     }
+  }
+
+  /// Whether a short Caps Lock press just ended, so the caller replays one
+  /// toggle. Every short press owes one, except the press that stops a locked
+  /// recording: the two taps that made the lock already toggled twice, which
+  /// leaves the case as it was.
+  #[cfg_attr(not(windows), allow(dead_code))]
+  pub fn take_caps_replay(&mut self) -> bool {
+    std::mem::take(&mut self.replay_caps)
   }
 
   fn combo_held(&self) -> bool {
@@ -479,7 +522,12 @@ impl HotkeyState {
           return;
         }
 
-        let is_modifier = self.modifiers.press(key);
+        // Caps Lock is a modifier only while it is the record shortcut.
+        let caps_key = key == Key::CapsLock;
+        if caps_key && self.record_shortcut.caps {
+          self.caps_pressed_at = Some(now);
+        }
+        let is_modifier = if caps_key && !self.record_shortcut.caps { false } else { self.modifiers.press(key) };
         if !is_modifier {
           self.handle_non_modifier_press(now);
           return;
@@ -527,7 +575,18 @@ impl HotkeyState {
         }
       }
       KeyEvent::Release(key) => {
-        let is_modifier = self.modifiers.release(key);
+        let caps_key = key == Key::CapsLock;
+        if caps_key && self.record_shortcut.caps {
+          let short = self
+            .caps_pressed_at
+            .take()
+            .is_some_and(|at| now.saturating_duration_since(at) < CANCEL_THRESHOLD);
+          let ends_lock = matches!(self.lock.map(|lock| lock.phase), Some(LockPhase::Armed | LockPhase::StoppingPress));
+          if short && !ends_lock {
+            self.replay_caps = true;
+          }
+        }
+        let is_modifier = if caps_key && !self.record_shortcut.caps { false } else { self.modifiers.release(key) };
         if !is_modifier {
           return;
         }
@@ -698,9 +757,40 @@ fn spawn_os_listener(handle: HotkeyHandle) {
 #[cfg(windows)]
 static SWALLOW_ALT_REPEAT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Set while the record shortcut is Caps Lock: the hook swallows the key.
+#[cfg(windows)]
+static SWALLOW_CAPS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Caps Lock is physically down (as far as the hook saw), to drop auto-repeat.
+#[cfg(windows)]
+static CAPS_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// How many of the Caps Lock events the hook sees next are our own replay and
+/// must pass through untouched.
+#[cfg(windows)]
+static CAPS_REPLAY_PENDING: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
 #[cfg(windows)]
 fn publish_shortcut_flags(shortcut: &Shortcut) {
   SWALLOW_ALT_REPEAT.store(shortcut.is_single_left_alt(), std::sync::atomic::Ordering::Relaxed);
+  SWALLOW_CAPS.store(shortcut.is_caps_lock(), std::sync::atomic::Ordering::Relaxed);
+  CAPS_DOWN.store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Give the system the Caps Lock toggle the hook swallowed. The two events go
+/// back through our own hook, which lets them pass because of the counter.
+#[cfg(windows)]
+fn replay_caps_lock() {
+  use std::sync::atomic::Ordering;
+  CAPS_REPLAY_PENDING.store(2, Ordering::SeqCst);
+  let sent = rdev::simulate(&rdev::EventType::KeyPress(Key::CapsLock))
+    .and_then(|()| rdev::simulate(&rdev::EventType::KeyRelease(Key::CapsLock)));
+  if sent.is_err() {
+    log::warn!("hotkey: could not replay the Caps Lock toggle");
+  }
+  // If the hook never saw them, a stale count must not eat the next real press.
+  thread::spawn(|| {
+    thread::sleep(Duration::from_millis(500));
+    CAPS_REPLAY_PENDING.store(0, Ordering::SeqCst);
+  });
 }
 
 /// Windows: the low-level hook can swallow events, which `listen` cannot. A held
@@ -718,6 +808,28 @@ fn spawn_os_listener(handle: HotkeyHandle) {
       // (alt is down, when its last key-down arrived). `grab` wants an `Fn`.
       let alt = std::sync::Mutex::new((false, None::<Instant>));
       if let Err(error) = rdev::grab(move |event| {
+        use std::sync::atomic::Ordering;
+        if let rdev::EventType::KeyPress(Key::CapsLock) | rdev::EventType::KeyRelease(Key::CapsLock) = event.event_type {
+          // Our own replay of the toggle: let the system have it.
+          if CAPS_REPLAY_PENDING
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+          {
+            return Some(event);
+          }
+          if SWALLOW_CAPS.load(Ordering::Relaxed) {
+            let press = matches!(event.event_type, rdev::EventType::KeyPress(_));
+            // Auto-repeat of a held key is not a new press.
+            if !(press && CAPS_DOWN.swap(true, Ordering::Relaxed)) {
+              if !press {
+                CAPS_DOWN.store(false, Ordering::Relaxed);
+              }
+              let key_event = if press { KeyEvent::Press(Key::CapsLock) } else { KeyEvent::Release(Key::CapsLock) };
+              let _ = handle.tx.send(HotkeyMsg::KeyEvent(key_event, None));
+            }
+            return None;
+          }
+        }
         let key_event = match event.event_type {
           // The key we inject ourselves to keep a lone Alt from opening the menu
           // bar; to the state machine it would look like a typed key.
@@ -897,6 +1009,7 @@ fn modifier_state_from_flags(flags: u64) -> ModifierState {
     shift: sides_from_flags(flags, KCG_EVENT_FLAG_MASK_SHIFT, NX_DEVICE_LSHIFT, NX_DEVICE_RSHIFT),
     alt: sides_from_flags(flags, KCG_EVENT_FLAG_MASK_ALTERNATE, NX_DEVICE_LALT, NX_DEVICE_RALT),
     meta: sides_from_flags(flags, KCG_EVENT_FLAG_MASK_COMMAND, NX_DEVICE_LCMD, NX_DEVICE_RCMD),
+    caps: false,
   }
 }
 
@@ -1046,6 +1159,10 @@ fn run_state_thread(app: AppHandle, rx: Receiver<HotkeyMsg>, initial_shortcut: S
         if matches!(event, KeyEvent::Press(Key::Alt)) && state.record_shortcut.is_single_left_alt() {
           crate::platform::suppress_alt_menu_activation_soon();
         }
+        #[cfg(windows)]
+        if state.take_caps_replay() {
+          replay_caps_lock();
+        }
         if probe_session {
           // The tester's gestures are not dictations; keep them out of the trace.
         } else if let Some(line) = trace.observe_key(&state, was_held, event, source_pid, now) {
@@ -1148,6 +1265,9 @@ fn windows_modifier_state() -> ModifierState {
     shift: sides(VK_LSHIFT, VK_RSHIFT),
     alt: sides(VK_LMENU, VK_RMENU),
     meta: sides(VK_LWIN, VK_RWIN),
+    // Never polled: the hook swallows Caps Lock, so GetAsyncKeyState would always
+    // read it as up. `resync_released` leaves it alone.
+    caps: false,
   }
 }
 
@@ -1263,6 +1383,7 @@ fn key_label(key: Key) -> &'static str {
     Key::ShiftLeft | Key::ShiftRight => "shift",
     Key::Alt | Key::AltGr => "alt",
     Key::MetaLeft | Key::MetaRight => "meta",
+    Key::CapsLock => "caps",
     _ => "other",
   }
 }
@@ -1693,6 +1814,74 @@ mod tests {
     assert!(Shortcut::parse("RightShift").is_none());
     assert!(Shortcut::parse("Alt+RightAlt").is_none());
     assert_eq!(Shortcut::parse("Win+Ctrl").unwrap().canonical(), "Ctrl+Meta");
+  }
+
+  #[cfg(windows)]
+  fn caps_state() -> HotkeyState {
+    HotkeyState::new(Shortcut::parse("CapsLock").unwrap())
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn caps_lock_alone_is_an_opt_in_shortcut_on_windows() {
+    let shortcut = Shortcut::parse("CapsLock").unwrap();
+    assert!(shortcut.is_caps_lock());
+    assert_eq!(shortcut.canonical(), "CapsLock");
+    assert_eq!(Shortcut::parse("capslock").unwrap(), shortcut);
+    assert!(Shortcut::parse("Ctrl+CapsLock").is_none());
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn caps_lock_held_records_and_gives_no_toggle_back() {
+    let mut state = caps_state();
+    let t0 = Instant::now();
+    state.handle_event(KeyEvent::Press(Key::CapsLock), t0);
+    assert_eq!(state.drain_actions(), vec![Action::Start]);
+    state.handle_event(KeyEvent::Release(Key::CapsLock), t0 + ms(900));
+    assert!(!state.take_caps_replay(), "a long hold is speech, not a case toggle");
+    state.handle_tick(t0 + ms(900) + STOP_DEBOUNCE + ms(1));
+    assert_eq!(state.drain_actions(), vec![Action::Stop]);
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn a_caps_lock_tap_gives_the_toggle_back_at_once() {
+    let mut state = caps_state();
+    let t0 = Instant::now();
+    state.handle_event(KeyEvent::Press(Key::CapsLock), t0);
+    let _ = state.drain_actions();
+    state.handle_event(KeyEvent::Release(Key::CapsLock), t0 + ms(120));
+    assert!(state.take_caps_replay(), "typing right after the tap must already see the new case");
+    assert!(!state.take_caps_replay());
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn a_caps_lock_double_tap_locks_and_the_stopping_press_gives_no_toggle() {
+    let mut state = caps_state();
+    let t0 = Instant::now();
+    state.handle_event(KeyEvent::Press(Key::CapsLock), t0);
+    state.handle_event(KeyEvent::Release(Key::CapsLock), t0 + ms(100));
+    assert!(state.take_caps_replay());
+    state.handle_event(KeyEvent::Press(Key::CapsLock), t0 + ms(200));
+    assert!(matches!(state.drain_actions().last(), Some(Action::Lock(_))));
+    state.handle_event(KeyEvent::Release(Key::CapsLock), t0 + ms(300));
+    assert!(state.take_caps_replay(), "two toggles in all, so the case ends where it began");
+    state.handle_event(KeyEvent::Press(Key::CapsLock), t0 + ms(2000));
+    state.handle_event(KeyEvent::Release(Key::CapsLock), t0 + ms(2100));
+    assert_eq!(state.drain_actions(), vec![Action::Stop]);
+    assert!(!state.take_caps_replay());
+  }
+
+  #[test]
+  fn caps_lock_is_an_ordinary_key_for_every_other_shortcut() {
+    let mut state = fresh_state();
+    let t0 = Instant::now();
+    state.handle_event(KeyEvent::Press(Key::CapsLock), t0);
+    state.handle_event(KeyEvent::Release(Key::CapsLock), t0 + ms(50));
+    assert!(state.drain_actions().is_empty());
+    assert!(!state.take_caps_replay());
   }
 
   #[test]

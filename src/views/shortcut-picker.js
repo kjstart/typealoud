@@ -20,6 +20,7 @@
       { value: "Ctrl+Alt", more: true, note: "ctrlAltWindows" },
       { value: "LeftAlt", more: true, note: "leftAlt" },
       { value: "LeftCtrl", more: true, note: "leftCtrl" },
+      { value: "CapsLock", more: true, note: "capsLock" },
     ],
     linux: [
       { value: "Ctrl+Shift", recommended: true },
@@ -34,6 +35,7 @@
     shift: "shift",
     alt: "alt", option: "alt",
     meta: "meta", cmd: "meta", command: "meta", super: "meta", win: "meta", windows: "meta",
+    capslock: "caps", caps: "caps",
   };
 
   function normalizeOs(os) {
@@ -65,7 +67,7 @@
         : { ctrl: "Control", shift: "Shift", alt: "Option", meta: "Command" };
       return names[key] || key;
     }
-    const words = { ctrl: "Ctrl", shift: "Shift", alt: "Alt", meta: os === "linux" ? "Super" : "Win" };
+    const words = { ctrl: "Ctrl", shift: "Shift", alt: "Alt", meta: os === "linux" ? "Super" : "Win", caps: "Caps Lock" };
     return words[key] || key;
   }
 
