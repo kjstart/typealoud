@@ -78,3 +78,28 @@ for (const toggle of toggles) {
     assert.match(source, /settingsPage\?\.addEventListener\("change", commitNow\)/);
   });
 }
+
+// Live preview text is the one default-OFF toggle in this section.
+test("showLiveText defaults off, saves both states and restores them", async () => {
+  const toggle = { key: "showLiveText", id: "showLiveTextCheck" };
+  for (const stored of [undefined, false]) {
+    const h = harness(toggle, stored);
+    await h.context.loadSettings();
+    assert.equal(h.checkbox.checked, false);
+  }
+  const h = harness(toggle, true);
+  await h.context.loadSettings();
+  assert.equal(h.checkbox.checked, true);
+  for (const enabled of [false, true]) {
+    h.checkbox.checked = enabled;
+    assert.equal(await h.context.saveSettings(), true);
+    assert.equal(h.saved.at(-1).showLiveText, enabled);
+  }
+});
+
+test("showLiveText sits in the common dictation section", () => {
+  const options = html.slice(html.indexOf('id="dictationOptions"'), html.indexOf('id="engineAdvanced"'));
+  assert.match(options, /type="checkbox"[^>]*id="showLiveTextCheck"/);
+  assert.match(options, /aria-labelledby="showLiveTextTitle"/);
+  assert.match(options, /aria-describedby="showLiveTextDescription"/);
+});

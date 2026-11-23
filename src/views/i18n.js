@@ -412,6 +412,10 @@
           title: "Merge spelled-out letters",
           description: "Join letters spelled one at a time, for example A P I → API.",
         },
+        showLiveText: {
+          title: "Show live text while dictating",
+          description: "Preview words in the floating bubble as they are recognized. The final text is still what gets inserted.",
+        },
         autoLaunch: {
           title: "Start with system",
           description: "Automatically start TypeAloud when your computer starts up.",
@@ -1087,6 +1091,10 @@
         mergeSpelledLetters: {
           title: "自动合并拼读字母",
           description: "把一个个分开念的字母连起来，例如 A P I → API。",
+        },
+        showLiveText: {
+          title: "听写时显示实时文字",
+          description: "边说边在浮窗里预览识别出的文字。最终插入的仍是识别完成后的文本。",
         },
         autoLaunch: {
           title: "开机自启",

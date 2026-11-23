@@ -2288,6 +2288,10 @@ async function loadSettings() {
     if (removeFillerWordsCheck) {
       removeFillerWordsCheck.checked = currentSettings.removeFillerWords !== false;
     }
+    const showLiveTextCheck = document.getElementById("showLiveTextCheck");
+    if (showLiveTextCheck) {
+      showLiveTextCheck.checked = currentSettings.showLiveText === true;
+    }
     const usageStatsCheck = document.getElementById("usageStatsCheck");
     if (usageStatsCheck) {
       usageStatsCheck.checked = currentSettings.usageStats !== false;
@@ -2515,6 +2519,8 @@ async function persistSettings(intent = null) {
         ?? currentSettings.mergeSpelledLetters !== false,
       removeFillerWords: document.getElementById("removeFillerWordsCheck")?.checked
         ?? currentSettings.removeFillerWords !== false,
+      showLiveText: document.getElementById("showLiveTextCheck")?.checked
+        ?? currentSettings.showLiveText === true,
       usageStats: document.getElementById("usageStatsCheck")?.checked
         ?? currentSettings.usageStats !== false,
       provider: target.provider,

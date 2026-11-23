@@ -107,6 +107,10 @@ pub struct AppConfig {
   pub merge_spelled_letters: bool,
   #[serde(default = "default_remove_filler_words")]
   pub remove_filler_words: bool,
+  /// Show the engine's preview text in the floating bubble while it decodes.
+  /// Off by default: the preview is progress only, never what gets inserted.
+  #[serde(default)]
+  pub show_live_text: bool,
   #[serde(default = "default_ui_language")]
   pub ui_language: String,
   #[serde(default = "default_ui_theme")]
@@ -165,6 +169,7 @@ impl Default for AppConfig {
       language: default_language(),
       merge_spelled_letters: default_merge_spelled_letters(),
       remove_filler_words: default_remove_filler_words(),
+      show_live_text: false,
       ui_language: default_ui_language(),
       ui_theme: default_ui_theme(),
       model: default_model(),
@@ -226,6 +231,7 @@ pub struct SettingsPayload {
   pub language: String,
   pub merge_spelled_letters: bool,
   pub remove_filler_words: bool,
+  pub show_live_text: bool,
   pub ui_language: String,
   pub ui_theme: String,
   pub model: String,
@@ -293,6 +299,7 @@ impl SettingsPayload {
       language: config.language.clone(),
       merge_spelled_letters: config.merge_spelled_letters,
       remove_filler_words: config.remove_filler_words,
+      show_live_text: config.show_live_text,
       ui_language: config.ui_language.clone(),
       ui_theme: config.ui_theme.clone(),
       model: config.model.clone(),
@@ -673,6 +680,25 @@ mod tests {
       })).unwrap();
       let payload = serde_json::to_value(SettingsPayload::from_config_with(&config, false)).unwrap();
       assert_eq!(payload["removeFillerWords"], enabled);
+    }
+  }
+
+  #[test]
+  fn show_live_text_defaults_off_and_reaches_the_frontend_payload() {
+    use crate::hardware::LocalTier;
+    for config in [
+      AppConfig::default(),
+      fresh_config_for(LocalTier::Qwen),
+      serde_json::from_str::<AppConfig>(r#"{"provider":"openrouter"}"#).unwrap(),
+    ] {
+      assert_eq!(serde_json::to_value(config).unwrap()["showLiveText"], false);
+    }
+    for enabled in [true, false] {
+      let config: AppConfig = serde_json::from_value(serde_json::json!({
+        "showLiveText": enabled,
+      })).unwrap();
+      let payload = serde_json::to_value(SettingsPayload::from_config_with(&config, false)).unwrap();
+      assert_eq!(payload["showLiveText"], enabled);
     }
   }
 

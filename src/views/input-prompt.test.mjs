@@ -287,6 +287,7 @@ test("local partial text is shown only for the latest non-recording session", ()
   });
   const previews = [];
   const prompt = createBarePrompt(VoiceInputPrompt, {
+    showLiveText: true,
     recordingSessionId: 2,
     transcriptionInProgressCount: 2,
     transcriptionText: {},
@@ -307,6 +308,35 @@ test("local partial text is shown only for the latest non-recording session", ()
   assert.deepEqual(previews, ["latest"]);
 });
 
+test("live preview text stays hidden unless Settings turns it on", () => {
+  const handlers = new Map();
+  const VoiceInputPrompt = loadVoiceInputPrompt({
+    on(channel, handler) {
+      handlers.set(channel, handler);
+    },
+  });
+  const previews = [];
+  const prompt = createBarePrompt(VoiceInputPrompt, {
+    recordingSessionId: 2,
+    transcriptionInProgressCount: 1,
+    transcriptionText: {},
+    setTranscriptionPreview(text) {
+      previews.push(text);
+    },
+    updateModelBadge() {},
+  });
+  prompt.setupEventListeners();
+  const onPartial = handlers.get("local-transcription-partial");
+
+  onPartial(null, { sessionId: 2, text: "off by default" });
+  prompt.renderChunkedPreview({ results: ["chunk text"], livePartial: null, sessionId: 2 });
+  assert.deepEqual(previews, []);
+
+  prompt.showLiveText = true;
+  onPartial(null, { sessionId: 2, text: "now on" });
+  assert.deepEqual(previews, ["now on"]);
+});
+
 test("Nemotron partials render during recording but not after the session is idle", () => {
   const handlers = new Map();
   const VoiceInputPrompt = loadVoiceInputPrompt({
@@ -316,6 +346,7 @@ test("Nemotron partials render during recording but not after the session is idl
   });
   const previews = [];
   const prompt = createBarePrompt(VoiceInputPrompt, {
+    showLiveText: true,
     recordingSessionId: 4,
     transcriptionInProgressCount: 0,
     transcriptionText: {},
@@ -1813,6 +1844,7 @@ test("a chunk's streaming text renders in its own slot, not over finalized chunk
   const VoiceInputPrompt = loadForChunking(async () => null);
   let preview = null;
   const prompt = createBarePrompt(VoiceInputPrompt, {
+    showLiveText: true,
     setTranscriptionPreview(text) {
       preview = text;
     },

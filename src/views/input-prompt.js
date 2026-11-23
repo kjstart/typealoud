@@ -508,7 +508,7 @@ class VoiceInputPrompt {
     // authoritative final replaces it before insertion and history storage.
     ipc.on("local-transcription-partial", (event, payload) => {
       const text = payload && payload.text;
-      if (!text || !this.transcriptionText) {
+      if (!this.showLiveText || !text || !this.transcriptionText) {
         return;
       }
       const sessionMatches = Number(payload.sessionId) === this.recordingSessionId;
@@ -1673,6 +1673,8 @@ class VoiceInputPrompt {
       // can still be waiting for its model download. No API keys leave Rust.
       this.engineBlocker = settings.engineBlocker || "";
       this.engineBlockerModel = settings.model || null;
+      // Re-read before every recording so a Settings change applies at once.
+      this.showLiveText = settings.showLiveText === true;
       return settings.engineReady !== false;
     } catch (error) {
       console.error("Failed to check engine readiness before recording:", error);
@@ -2180,7 +2182,7 @@ class VoiceInputPrompt {
   // Finalized chunks plus the in-flight chunk's streaming text. Preview only —
   // the assembled final from finishChunkedLocal is what gets inserted.
   renderChunkedPreview(chunked) {
-    if (chunked.aborted || (this.recordingSessionId > 0 &&
+    if (!this.showLiveText || chunked.aborted || (this.recordingSessionId > 0 &&
       chunked.sessionId !== this.recordingSessionId)) {
       return;
     }
