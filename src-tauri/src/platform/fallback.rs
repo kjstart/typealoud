@@ -15,7 +15,7 @@ use super::InsertResult;
 use anyhow::Result;
 #[cfg(not(windows))]
 use anyhow::anyhow;
-use enigo::{Enigo, Keyboard, Settings};
+use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 
 pub fn accessibility_required() -> bool {
   false
@@ -72,7 +72,7 @@ pub fn insert_text(text: &str, _check_focus: bool) -> InsertResult {
       return InsertResult::Failed;
     }
   };
-  match enigo.text(text) {
+  match type_with_soft_breaks(&mut enigo, text) {
     Ok(()) => InsertResult::Inserted {
       method: "enigo_text",
     },
@@ -81,6 +81,26 @@ pub fn insert_text(text: &str, _check_focus: bool) -> InsertResult {
       InsertResult::Failed
     }
   }
+}
+
+/// Line breaks are typed as Shift+Enter, never plain Enter: a plain Enter submits
+/// the message in chat boxes (Claude, ChatGPT, Slack ...), so a dictation with
+/// several paragraphs would send all but the last. Shift+Enter is a soft newline
+/// there and an ordinary newline in editors.
+fn type_with_soft_breaks(enigo: &mut Enigo, text: &str) -> Result<(), enigo::InputError> {
+  let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+  for (index, line) in normalized.split('\n').enumerate() {
+    if index > 0 {
+      enigo.key(Key::Shift, Direction::Press)?;
+      let enter = enigo.key(Key::Return, Direction::Click);
+      enigo.key(Key::Shift, Direction::Release)?;
+      enter?;
+    }
+    if !line.is_empty() {
+      enigo.text(line)?;
+    }
+  }
+  Ok(())
 }
 
 pub fn focused_window_center() -> Option<(f64, f64)> {
