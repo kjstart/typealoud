@@ -128,7 +128,7 @@ impl Shortcut {
 
   /// The left Alt key on its own. Pressing and releasing Alt alone opens the
   /// menu bar in Windows apps, which `platform::suppress_alt_menu_activation`
-  /// prevents once a recording starts.
+  /// prevents (it sends a mask key after every Alt press, repeats included).
   pub fn is_single_left_alt(&self) -> bool {
     self.alt == KeyUse::LeftOnly
       && self.ctrl == KeyUse::Unused
@@ -967,6 +967,13 @@ fn run_state_thread(app: AppHandle, rx: Receiver<HotkeyMsg>, initial_shortcut: S
       Ok(HotkeyMsg::KeyEvent(event, source_pid)) => {
         let was_held = state.combo_held();
         state.handle_event(event, now);
+        // Holding Alt auto-repeats its key-down, and Electron/Chromium re-arms
+        // its "Alt alone toggles the menu bar" flag on every one, so a single
+        // mask key sent at the start is not enough: send one after each press.
+        #[cfg(windows)]
+        if matches!(event, KeyEvent::Press(Key::Alt)) && state.record_shortcut.is_single_left_alt() {
+          crate::platform::suppress_alt_menu_activation();
+        }
         if probe_session {
           // The tester's gestures are not dictations; keep them out of the trace.
         } else if let Some(line) = trace.observe_key(&state, was_held, event, source_pid, now) {
@@ -1028,10 +1035,6 @@ fn run_state_thread(app: AppHandle, rx: Receiver<HotkeyMsg>, initial_shortcut: S
     for action in state.drain_actions() {
       if action == Action::Start {
         probe_session = probe && main_window_focused(&app);
-        #[cfg(windows)]
-        if state.record_shortcut.is_single_left_alt() {
-          crate::platform::suppress_alt_menu_activation();
-        }
       }
       if probe_session {
         let event = ProbeEvent { action: Some(probe_action_label(action)), ..probe_keys(&state) };

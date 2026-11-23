@@ -245,8 +245,15 @@ audio). Qwen does not segment internally.
 - On release: flush the remainder as the final chunk, drain the queue, join the texts, insert once,
   save one History row. The joiner adds no space when either side of a seam is CJK/full-width, and
   one space between Latin chunks.
-- The post-release VAD gate is skipped on this path. Its trimming exists for Whisper's silence
-  boilerplate, a cloud problem; Qwen returns empty text for silence.
+- The post-release VAD trimming is skipped on this path (it exists for Whisper's silence
+  boilerplate). **Qwen does not return empty text for silence**: on 2026-11-23 holds of 1–2.5 s with
+  no speech (peak 0.0008–0.0035) came back as a 41-character invented sentence and, twice, as a
+  generation that never emitted end-of-sequence and ran until the KV cache was full (10 s on GPU,
+  131 s of full CPU on a 2.5 s clip, then the one-shot retry looped again). So an uncut dictation of
+  20 s or less is VAD-checked like a short remainder (`WHOLE_CLIP_VAD_MAX_S`), and a clip with no
+  speech is not decoded. Backend backstop in `local_asr.rs`: a transcript longer than
+  `max_transcript_bytes` (512 + 96 per audio second) kills the worker with `RunawayOutput`, and
+  that error is never retried one-shot.
 - One exception: when a cut happened during recording and the final remainder is 3 s or shorter,
   Silero checks it first (`remainderIsSilent`, `TypeAloudVadGate.hasSpeech`) and a remainder without
   speech is dropped instead of decoded. A cut shortly before release can leave only the pause's

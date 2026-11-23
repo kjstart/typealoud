@@ -1771,11 +1771,24 @@ test("a remainder with speech is decoded as before", async () => {
   assert.equal(text, "chunk0 chunk1");
 });
 
-test("the VAD is not consulted for an uncut dictation or a long remainder", async () => {
-  const uncut = await dictateWithRemainder(async () => false, { firstReason: null });
-  assert.deepEqual(uncut.vadCalls, [], "a single-chunk dictation keeps the old path");
-  assert.deepEqual(uncut.decoded, [0]);
+test("a short uncut dictation with no speech is never sent to the model", async () => {
+  const silent = await dictateWithRemainder(async () => false, { firstReason: null });
+  assert.deepEqual(silent.vadCalls, [8000], "the single chunk goes to the VAD");
+  assert.deepEqual(silent.decoded, [], "Qwen never sees a hold with no speech");
+  assert.equal(silent.text, "");
 
+  const spoken = await dictateWithRemainder(async () => true, { firstReason: null });
+  assert.deepEqual(spoken.decoded, [0], "speech is decoded as before");
+
+  const failing = await dictateWithRemainder(async () => { throw new Error("ort"); }, { firstReason: null });
+  assert.deepEqual(failing.decoded, [0], "a failing VAD fails open");
+
+  const tooLong = await dictateWithRemainder(async () => false,
+    { firstReason: null, remainderSamples: 20 * 16000 + 1 });
+  assert.deepEqual(tooLong.vadCalls, [], "past 20 s the clip is decoded unchecked");
+});
+
+test("a long remainder is not VAD-checked unless it is quiet", async () => {
   const long = await dictateWithRemainder(async () => false, { remainderSamples: 3 * 16000 + 1 });
   assert.deepEqual(long.vadCalls, [], "past 3 s the remainder is decoded unchecked");
   assert.deepEqual(long.decoded, [0, 1]);

@@ -1417,6 +1417,9 @@ async fn read_chat_response(
     last_progress = std::time::Instant::now();
     acc.extend_from_slice(&buf[..n]);
     seen_asr_marker |= acc.windows("<asr_text>".len()).any(|w| w == b"<asr_text>");
+    if stream_partials && output_is_runaway(&acc, wav_len) {
+      return Err(runaway_error(wav_len));
+    }
 
     if acc.ends_with(CHAT_PROMPT) {
       acc.truncate(acc.len() - CHAT_PROMPT.len());
@@ -1738,6 +1741,54 @@ fn partial_text(stdout: &[u8]) -> Option<String> {
   Some(s[idx + "<asr_text>".len()..].trim_start().trim_end_matches('\u{FFFD}').to_string())
 }
 
+/// Most transcript bytes a clip of this size can plausibly yield. Real speech
+/// is a few dozen bytes per second (CJK 3 bytes per character, English about
+/// 18); a decode that exceeds this much is the model looping without ever
+/// emitting end-of-sequence, which keeps streaming tokens until the KV cache is
+/// full (measured: 131 s of full CPU on a 2.5 s clip), so no silence watchdog
+/// ever sees it.
+fn max_transcript_bytes(wav_len: usize) -> usize {
+  let secs = wav_len.saturating_sub(44) / 32000;
+  512 + 96 * secs
+}
+
+/// True once the transcript after the `<asr_text>` marker is longer than the
+/// clip can justify. `acc` is the raw stdout so far.
+fn output_is_runaway(acc: &[u8], wav_len: usize) -> bool {
+  let cap = max_transcript_bytes(wav_len);
+  if acc.len() <= cap {
+    return false;
+  }
+  let marker = b"<asr_text>";
+  match acc.windows(marker.len()).rposition(|w| w == marker) {
+    Some(idx) => acc.len() - (idx + marker.len()) > cap,
+    None => false,
+  }
+}
+
+/// The model kept generating far past what the audio can contain. Retrying the
+/// same audio loops the same way, so callers must not re-run it.
+#[derive(Debug)]
+struct RunawayOutput {
+  clip_secs: usize,
+}
+
+impl std::fmt::Display for RunawayOutput {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "Local model looped on a {}s clip and was stopped. Try dictating again.",
+      self.clip_secs
+    )
+  }
+}
+
+impl std::error::Error for RunawayOutput {}
+
+fn runaway_error(wav_len: usize) -> anyhow::Error {
+  anyhow::Error::new(RunawayOutput { clip_secs: wav_len.saturating_sub(44) / 32000 })
+}
+
 /// Floor on how often partial text is pushed to the webview. The model emits
 /// tokens far faster than the UI needs repainting.
 const PARTIAL_EMIT_INTERVAL: Duration = Duration::from_millis(100);
@@ -1937,6 +1988,18 @@ async fn transcribe_wav_inner_for(
         );
         return Ok(text);
       }
+      Ok(Err(error)) if error.downcast_ref::<RunawayOutput>().is_some() => {
+        // Looping output is a property of this audio, not of the worker: a
+        // one-shot retry would burn another minutes of CPU and loop again.
+        log::warn!(
+          "local-asr: runaway output stopped: runtime={} elapsed_ms={} wav_kb={}",
+          worker.runtime.label(),
+          resident_started.elapsed().as_millis(),
+          wav_bytes.len() / 1024
+        );
+        drop(worker);
+        return Err(error);
+      }
       Ok(Err(error)) => {
         // Let the stderr reader drain what the dying process wrote last.
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -2006,6 +2069,7 @@ async fn transcribe_wav_inner_for(
   let last_progress_ms = AtomicU64::new(0);
   let seen_first_byte = AtomicBool::new(false);
   let wav_len = wav_bytes.len();
+  let runaway = AtomicBool::new(false);
 
   // Both pipes must be drained concurrently -- letting either fill blocks the
   // child. stdout additionally streams partial text out as it arrives.
@@ -2023,6 +2087,11 @@ async fn transcribe_wav_inner_for(
         seen_first_byte.store(true, Ordering::Relaxed);
         last_progress_ms.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
         acc.extend_from_slice(&buf[..n]);
+        if output_is_runaway(&acc, wav_len) {
+          runaway.store(true, Ordering::Relaxed);
+          // Park here; the watchdog's next poll turns the flag into an abort.
+          std::future::pending::<()>().await;
+        }
         if last_emit.is_some_and(|t| t.elapsed() < PARTIAL_EMIT_INTERVAL) {
           continue;
         }
@@ -2052,6 +2121,9 @@ async fn transcribe_wav_inner_for(
   let watchdog = async {
     loop {
       tokio::time::sleep(WATCHDOG_POLL).await;
+      if runaway.load(Ordering::Relaxed) {
+        break runaway_error(wav_len);
+      }
       let since_start = started.elapsed();
       let since_progress =
         since_start.saturating_sub(Duration::from_millis(last_progress_ms.load(Ordering::Relaxed)));
@@ -3207,6 +3279,25 @@ mod tests {
     push_stderr_line(&mut tail, "<asr_text>spoken words");
     assert_eq!(tail.len(), 1);
     assert_eq!(tail[0].chars().count(), STDERR_LINE_MAX);
+  }
+
+  #[test]
+  fn looping_output_is_flagged_but_real_speech_is_not() {
+    let wav_len = 44 + 32000 * 3; // 3 s clip
+    let marker = "language English<asr_text>";
+    // A fast 3 s English sentence is well under the cap.
+    let speech = format!("{marker}{}", "word ".repeat(40));
+    assert!(!output_is_runaway(speech.as_bytes(), wav_len));
+    // Chinese: 3 bytes per character, 8 characters per second.
+    let chinese = format!("{marker}{}", "字".repeat(24));
+    assert!(!output_is_runaway(chinese.as_bytes(), wav_len));
+    // A loop keeps going far past what 3 s can hold.
+    let looping = format!("{marker}{}", "the ".repeat(400));
+    assert!(output_is_runaway(looping.as_bytes(), wav_len));
+    // Before the marker nothing counts as transcript.
+    assert!(!output_is_runaway("x".repeat(5000).as_bytes(), wav_len));
+    let err = runaway_error(wav_len);
+    assert!(err.downcast_ref::<RunawayOutput>().is_some());
   }
 
   #[test]

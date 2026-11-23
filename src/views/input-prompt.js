@@ -30,6 +30,8 @@ const AUDIO_STAGE_TIMEOUT_MS = 30000;
 // Silero takes ~10 ms per second of audio, so longer remainders are not worth
 // holding the post-release path for; they contain speech almost always.
 const REMAINDER_VAD_MAX_S = 3;
+// An uncut dictation up to this long is VAD-checked before it is decoded.
+const WHOLE_CLIP_VAD_MAX_S = 20;
 // A longer remainder is checked too when it holds less than this much audio
 // above the previous chunk's pause level. Holding the key through a long
 // silence after a cut leaves seconds of room noise, which Qwen has turned into
@@ -2052,8 +2054,15 @@ class VoiceInputPrompt {
       if (chunked.aborted) {
         return;
       }
-      if (reason === "release" && chunkIndex > 0 &&
-        (quietRemainder || pcm.length <= REMAINDER_VAD_MAX_S * chunked.sampleRate) &&
+      // A short dictation that was never cut is one chunk, and is checked too:
+      // Qwen does not return empty text for silence. A hold with no speech
+      // came back as invented sentences and, twice on 2026-11-23, as a
+      // generation that never ended (docs/local-asr.md).
+      const wholeShortClip = chunkIndex === 0 &&
+        pcm.length <= WHOLE_CLIP_VAD_MAX_S * chunked.sampleRate;
+      if (reason === "release" &&
+        (wholeShortClip || (chunkIndex > 0 &&
+          (quietRemainder || pcm.length <= REMAINDER_VAD_MAX_S * chunked.sampleRate))) &&
         await this.remainderIsSilent(pcm, chunked.sampleRate)) {
         if (chunked.aborted) return;
         accounting.submittedSamples += pcm.length;
