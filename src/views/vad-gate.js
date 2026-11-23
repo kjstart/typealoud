@@ -15,6 +15,12 @@
   const VENDOR = new URL("vendor/vad/", document.baseURI).href;
   const MIN_SPEECH_MS = 250; // start/end are milliseconds (vad-web NonRealTimeVAD source)
   const TARGET_RATE = 16000; // Whisper's native rate; the server resamples to it anyway
+  // vad-web 0.0.30 defaults to 0.3 / 0.25, which is tuned for the newer v5
+  // model; with this legacy model it also fires on room noise, and a "speech"
+  // verdict on a silent clip is what hands the ASR model nothing to decode but
+  // hallucinations. 0.5 / 0.35 are the library's classic values for this model.
+  const POSITIVE_SPEECH_THRESHOLD = 0.5;
+  const NEGATIVE_SPEECH_THRESHOLD = 0.35;
   // Generous padding: cutting a soft first/last word is worse than leaving
   // silence (same trade-off as hotkey.rs STOP_DEBOUNCE). Skip re-encoding
   // entirely unless trimming actually removes a meaningful stretch.
@@ -52,7 +58,11 @@
         window.ort.env.wasm.wasmPaths = VENDOR; // absolute URL (import() needs it)
         window.ort.env.wasm.numThreads = 1; // avoid SharedArrayBuffer / COOP-COEP
         if (!window.vad) await loadScript(VENDOR + "bundle.min.js"); // -> window.vad (externalizes ort)
-        return window.vad.NonRealTimeVAD.new({ modelURL: VENDOR + "silero_vad_legacy.onnx" });
+        return window.vad.NonRealTimeVAD.new({
+          modelURL: VENDOR + "silero_vad_legacy.onnx",
+          positiveSpeechThreshold: POSITIVE_SPEECH_THRESHOLD,
+          negativeSpeechThreshold: NEGATIVE_SPEECH_THRESHOLD,
+        });
       })().catch((e) => {
         vadPromise = null; // allow retry on the next recording
         throw e;

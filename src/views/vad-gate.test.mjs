@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
-function loadVadGate({ segments = [{ start: 0, end: 500 }] } = {}) {
+function loadVadGate({ segments = [{ start: 0, end: 500 }], onNew } = {}) {
   let activeRuns = 0;
   let maxConcurrentRuns = 0;
   const sharedVad = {
@@ -40,7 +40,7 @@ function loadVadGate({ segments = [{ start: 0, end: 500 }] } = {}) {
 
   const window = {
     ort: { env: { wasm: {} } },
-    vad: { NonRealTimeVAD: { new: async () => sharedVad } },
+    vad: { NonRealTimeVAD: { new: async (options) => { onNew?.(options); return sharedVad; } } },
     TypeAloudVad: {
       decideSpeech: () => ({ speech: true, totalSpeechMs: 500 }),
       trimRangeMs: () => ({ startMs: 0, endMs: 100 }),
@@ -98,4 +98,13 @@ test("hasSpeech shares the model with analyze and never overlaps it", async () =
   await Promise.all([gate.analyze(blob), gate.hasSpeech(new Float32Array(1600))]);
 
   assert.equal(maxConcurrentRuns(), 1);
+});
+
+test("the VAD is created with thresholds that ignore room noise", async () => {
+  let options = null;
+  const { gate } = loadVadGate({ onNew: (o) => { options = o; } });
+  await gate.hasSpeech(new Float32Array(1600));
+  assert.equal(options.positiveSpeechThreshold, 0.5);
+  assert.equal(options.negativeSpeechThreshold, 0.35);
+  assert.match(options.modelURL, /silero_vad_legacy\.onnx$/);
 });
