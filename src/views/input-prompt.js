@@ -39,6 +39,12 @@ const WHOLE_CLIP_VAD_MAX_S = 20;
 // and silent ones 0.04 s or less, and the VAD still makes the actual call.
 const REMAINDER_QUIET_LOUD_S = 0.3;
 const REMAINDER_VAD_TIMEOUT_MS = 1500;
+// The VAD missed a two-character word (0.4 s of speech) on 2026-11-24 and the
+// dictation vanished. A clip whose loudest sample is above this is decoded even
+// when the VAD finds nothing: room noise on a headset stays well below it, a
+// spoken word does not, and a wrong decode costs one wasted request while a
+// wrong drop costs the user's words.
+const VAD_SILENCE_PEAK_MAX = 0.03;
 // Native transcription has its own 420 s whole-request deadline. Leave time
 // for IPC delivery without imposing one deadline on a multi-chunk recording.
 const TRANSCRIPTION_STAGE_TIMEOUT_MS = 450000;
@@ -2148,6 +2154,12 @@ class VoiceInputPrompt {
   async remainderIsSilent(pcm, sampleRate) {
     const gate = window.TypeAloudVadGate;
     if (typeof gate?.hasSpeech !== "function") return false;
+    let peak = 0;
+    for (let i = 0; i < pcm.length; i++) {
+      const v = Math.abs(pcm[i]);
+      if (v > peak) peak = v;
+    }
+    if (peak > VAD_SILENCE_PEAK_MAX) return false;
     let timer = null;
     try {
       const verdict = (async () => gate.hasSpeech(await this.resampleTo16k(pcm, sampleRate)))();
