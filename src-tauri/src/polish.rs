@@ -217,8 +217,25 @@ pub fn plan(config: &PolishConfig, text: &str) -> Option<Plan> {
   Some(Plan { mode: Mode::Standard, system, user: text.to_string() })
 }
 
+/// Anthropic's Messages API has its own request and response shape and auth
+/// header, so it is picked from the address (api.anthropic.com or a `/messages`
+/// path) rather than from a setting.
+pub fn is_anthropic(base_url: &str) -> bool {
+  let base = base_url.trim().trim_end_matches('/').to_ascii_lowercase();
+  base.contains("anthropic.com") || base.ends_with("/v1/messages")
+}
+
 pub fn endpoint(base_url: &str) -> String {
   let base = base_url.trim().trim_end_matches('/');
+  if is_anthropic(base) {
+    return if base.ends_with("/messages") {
+      base.to_string()
+    } else if base.ends_with("/v1") {
+      format!("{base}/messages")
+    } else {
+      format!("{base}/v1/messages")
+    };
+  }
   if base.ends_with("/chat/completions") {
     base.to_string()
   } else {
@@ -236,6 +253,16 @@ fn is_deepseek(config: &PolishConfig) -> bool {
 }
 
 fn request_body(config: &PolishConfig, plan: &Plan) -> Value {
+  if is_anthropic(&config.base_url) {
+    // No temperature: some current Claude models reject it, and a rewrite
+    // does not need it.
+    return json!({
+      "model": config.model,
+      "max_tokens": 4096,
+      "system": plan.system,
+      "messages": [{ "role": "user", "content": plan.user }],
+    });
+  }
   let mut body = json!({
     "model": config.model,
     "messages": [
@@ -257,9 +284,16 @@ async fn request(client: &reqwest::Client, config: &PolishConfig, plan: &Plan) -
     Mode::Standard => standard_timeout(plan.user.chars().count()),
     Mode::Command => COMMAND_TIMEOUT,
   };
-  let response = client
-    .post(endpoint(&config.base_url))
-    .bearer_auth(config.api_key.trim())
+  let anthropic = is_anthropic(&config.base_url);
+  let builder = client.post(endpoint(&config.base_url));
+  let builder = if anthropic {
+    builder
+      .header("x-api-key", config.api_key.trim())
+      .header("anthropic-version", "2023-06-01")
+  } else {
+    builder.bearer_auth(config.api_key.trim())
+  };
+  let response = builder
     .timeout(timeout)
     .json(&request_body(config, plan))
     .send()
@@ -276,10 +310,24 @@ async fn request(client: &reqwest::Client, config: &PolishConfig, plan: &Plan) -
     bail!("http {}", status.as_u16());
   }
   let value: Value = response.json().await.context("unreadable response")?;
+  if anthropic {
+    return anthropic_text(&value).ok_or_else(|| anyhow!("response has no text"));
+  }
   value["choices"][0]["message"]["content"]
     .as_str()
     .map(str::to_owned)
     .ok_or_else(|| anyhow!("response has no text"))
+}
+
+/// The text blocks of a Messages API answer, joined (thinking or tool blocks skipped).
+fn anthropic_text(value: &Value) -> Option<String> {
+  let text: String = value["content"]
+    .as_array()?
+    .iter()
+    .filter(|block| block["type"] == "text")
+    .filter_map(|block| block["text"].as_str())
+    .collect();
+  (!text.is_empty()).then_some(text)
 }
 
 /// Reject an answer that cannot be a faithful edit, so the original is kept.
@@ -422,6 +470,30 @@ mod tests {
     assert_eq!(endpoint("https://api.deepseek.com"), "https://api.deepseek.com/chat/completions");
     assert_eq!(endpoint("https://api.openai.com/v1/"), "https://api.openai.com/v1/chat/completions");
     assert_eq!(endpoint("http://localhost:11434/v1/chat/completions"), "http://localhost:11434/v1/chat/completions");
+  }
+
+  #[test]
+  fn anthropic_is_detected_from_the_address_and_gets_its_own_shape() {
+    assert_eq!(endpoint("https://api.anthropic.com"), "https://api.anthropic.com/v1/messages");
+    assert_eq!(endpoint("https://api.anthropic.com/v1/"), "https://api.anthropic.com/v1/messages");
+    assert_eq!(endpoint("https://proxy.example.com/v1/messages"), "https://proxy.example.com/v1/messages");
+    assert!(!is_anthropic("https://api.openai.com/v1"));
+
+    let mut cfg = config();
+    cfg.base_url = "https://api.anthropic.com".into();
+    cfg.model = "claude-haiku-5-5".into();
+    let plan = plan(&cfg, "嗯那个我们明天下午三点开会").unwrap();
+    let body = request_body(&cfg, &plan);
+    assert_eq!(body["system"], plan.system.as_str());
+    assert_eq!(body["messages"][0]["role"], "user");
+    assert!(body.get("temperature").is_none() && body["max_tokens"].is_number());
+
+    let answer = json!({ "content": [
+      { "type": "thinking", "thinking": "x" },
+      { "type": "text", "text": "我们明天下午三点开会" },
+    ]});
+    assert_eq!(anthropic_text(&answer).as_deref(), Some("我们明天下午三点开会"));
+    assert!(anthropic_text(&json!({ "content": [] })).is_none());
   }
 
   #[test]
