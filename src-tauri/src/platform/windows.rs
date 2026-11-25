@@ -411,3 +411,164 @@ mod tests {
     assert_eq!(arboard::Clipboard::new().unwrap().get_text().unwrap(), text);
   }
 }
+
+/// UI Automation control types (UIA_*ControlTypeId) that cannot take typed text
+/// by themselves. Anything not listed here (Edit, Document, ComboBox, and the
+/// generic Pane / Window / Custom / Group that self-drawing apps, terminals and
+/// browsers report before their accessibility tree is up) is let through.
+const NON_TEXT_CONTROL_TYPES: &[i32] = &[
+  50000, // Button
+  50001, // Calendar
+  50002, // CheckBox
+  50005, // Hyperlink
+  50006, // Image
+  50007, // ListItem
+  50008, // List
+  50009, // Menu
+  50010, // MenuBar
+  50011, // MenuItem
+  50012, // ProgressBar
+  50013, // RadioButton
+  50014, // ScrollBar
+  50015, // Slider
+  50017, // StatusBar
+  50018, // Tab
+  50019, // TabItem
+  50020, // Text
+  50021, // ToolBar
+  50022, // ToolTip
+  50023, // Tree
+  50024, // TreeItem
+  50027, // Thumb
+  50028, // DataGrid
+  50031, // SplitButton
+  50034, // Header
+  50035, // HeaderItem
+  50036, // Table
+  50037, // TitleBar
+  50038, // Separator
+];
+
+/// Whether the keyboard focus can take typed text, from what UI Automation says
+/// about the focused element. Best effort like the macOS guard: it blocks only
+/// on a clear verdict (a button, a list item, the desktop's icons), never on
+/// uncertainty. An element that offers text editing (a text pattern or a
+/// writable value) always counts, whatever its control type: terminals report
+/// themselves as "Text" yet take input.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(super) fn focus_accepts_text(control_type: Option<i32>, offers_text_editing: bool) -> bool {
+  match control_type {
+    None => true,
+    Some(_) if offers_text_editing => true,
+    Some(id) => !NON_TEXT_CONTROL_TYPES.contains(&id),
+  }
+}
+
+/// Ask UI Automation whether the focused element in the foreground app can take
+/// text. True whenever it cannot tell (no answer within 1.5 s, COM failure,
+/// elevated or unresponsive target): the text is typed as before.
+#[cfg(windows)]
+pub fn focused_element_accepts_text() -> bool {
+  use std::sync::mpsc;
+  use std::time::Duration;
+
+  let (tx, rx) = mpsc::channel();
+  // COM wants its own thread state; a slow target must not hold the insert.
+  std::thread::spawn(move || {
+    let _ = tx.send(query_focused_element());
+  });
+  match rx.recv_timeout(Duration::from_millis(1500)) {
+    Ok((control_type, offers_text)) => {
+      let accepts = focus_accepts_text(control_type, offers_text);
+      log::info!(
+        target: "typealoud_lifecycle",
+        "insert focus control_type={:?} offers_text={} accepts={}",
+        control_type,
+        offers_text,
+        accepts
+      );
+      accepts
+    }
+    Err(_) => {
+      log::info!(target: "typealoud_lifecycle", "insert focus check timed out; typing anyway");
+      true
+    }
+  }
+}
+
+#[cfg(windows)]
+fn query_focused_element() -> (Option<i32>, bool) {
+  use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+  };
+  use windows::Win32::UI::Accessibility::{
+    CUIAutomation, IUIAutomation, IUIAutomationValuePattern, UIA_TextPatternId, UIA_ValuePatternId,
+  };
+
+  unsafe {
+    let initialized = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+    let answer = (|| {
+      let automation: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+      let element = automation.GetFocusedElement().ok()?;
+      let control_type = element.CurrentControlType().ok()?.0;
+      let has_text_pattern = element.GetCurrentPattern(UIA_TextPatternId).is_ok();
+      let writable_value = element
+        .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+        .ok()
+        .and_then(|pattern| pattern.CurrentIsReadOnly().ok())
+        .is_some_and(|read_only| !read_only.as_bool());
+      Some((control_type, has_text_pattern || writable_value))
+    })();
+    if initialized {
+      CoUninitialize();
+    }
+    match answer {
+      Some((control_type, offers_text)) => (Some(control_type), offers_text),
+      None => (None, false),
+    }
+  }
+}
+
+#[cfg(test)]
+mod focus_guard_tests {
+  use super::focus_accepts_text;
+
+  #[test]
+  fn an_unreadable_focus_is_not_a_block_verdict() {
+    assert!(focus_accepts_text(None, false));
+  }
+
+  #[test]
+  fn editors_and_self_drawn_surfaces_accept_text() {
+    // Edit, Document, ComboBox, Custom, Group, Window, Pane
+    for id in [50004, 50030, 50003, 50025, 50026, 50032, 50033] {
+      assert!(focus_accepts_text(Some(id), false), "{id}");
+    }
+  }
+
+  #[test]
+  fn buttons_list_items_and_icons_do_not() {
+    // Button, ListItem (desktop icons), TabItem, Text, MenuItem, TreeItem
+    for id in [50000, 50007, 50019, 50020, 50011, 50024] {
+      assert!(!focus_accepts_text(Some(id), false), "{id}");
+    }
+  }
+
+  #[test]
+  fn a_text_pattern_or_writable_value_wins_over_the_control_type() {
+    // Windows Terminal's control reports itself as Text yet takes input.
+    assert!(focus_accepts_text(Some(50020), true));
+    assert!(focus_accepts_text(Some(50007), true));
+  }
+
+  /// Manual: `cargo test live_focus_probe -- --ignored --nocapture`, then click
+  /// the app or desktop to probe within 5 seconds.
+  #[cfg(windows)]
+  #[test]
+  #[ignore = "Needs an interactive desktop; prints what UI Automation reports"]
+  fn live_focus_probe() {
+    std::thread::sleep(std::time::Duration::from_secs(5));
+    let (control_type, offers_text) = super::query_focused_element();
+    println!("control_type={control_type:?} offers_text={offers_text} accepts={}", focus_accepts_text(control_type, offers_text));
+  }
+}

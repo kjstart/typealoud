@@ -86,9 +86,9 @@ pub enum InsertResult {
   Inserted { method: &'static str },
   /// The mechanism is available, but nothing editable is focused — the
   /// keystrokes would land nowhere, so the prompt should offer "copy" instead.
-  /// Only macOS detects this (Accessibility focus check), so it reads as dead
-  /// code on non-macOS builds.
-  #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+  /// macOS (Accessibility focus check) and Windows (UI Automation) detect
+  /// this, so it reads as dead code on Linux builds.
+  #[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
   NoEditableTarget,
   /// Insertion was attempted and failed, or the permission it needs is not
   /// granted. The transcription is still saved to History.

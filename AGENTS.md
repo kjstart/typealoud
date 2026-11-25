@@ -268,7 +268,8 @@ cloud provider (OpenRouter/OpenAI), and inserts the text into the focused app.
 - `platform/` — the platform abstraction (`mod.rs` contract + `macos.rs` / `fallback.rs`, plus the
   macOS-only `activation.rs`, `drag_cloud.rs` and `macos_insert_guard.rs`, the pure policy that decides
   whether the focused element can take text; add an app that draws its own text there only after
-  testing it on a real machine). It owns text insertion, permission checks,
+  testing it on a real machine). Windows has the same guard in `platform/windows.rs` (`focused_element_accepts_text`, UI Automation): it blocks only on a
+  clear non-text verdict (button, list item, desktop icons) and never on uncertainty or a 1.5 s timeout; a text/value pattern always passes. It owns text insertion, permission checks,
   clipboard write and autostart. Non-macOS (`fallback.rs`, shared by Windows/Linux): insertion via
   `enigo`, Accessibility requires no separate grant, and Linux autostart is a stub. Windows delegates
   explicit clipboard copy, microphone Settings and autostart (the Store package's `StartupTask`,

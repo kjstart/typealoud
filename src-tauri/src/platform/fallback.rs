@@ -60,11 +60,20 @@ pub fn copy_to_clipboard(text: &str) -> Result<()> {
   }
 }
 
-pub fn insert_text(text: &str, _check_focus: bool) -> InsertResult {
+pub fn insert_text(text: &str, check_focus: bool) -> InsertResult {
+  #[cfg(not(windows))]
+  let _ = check_focus;
   // enigo drives SendInput (KEYEVENTF_UNICODE) on Windows and XTEST/libxdo on
   // Linux/X11 — layout-independent Unicode, so CJK/emoji go through. No special
   // permission needed. On any failure the transcription is still in History, so
   // report Failed and let the prompt offer the manual "Copy" affordance.
+  // Typing with nothing editable focused (desktop, a button, the taskbar) lands
+  // nowhere yet SendInput reports success. Windows asks UI Automation first, so
+  // the prompt can offer "copy" like it does on macOS.
+  #[cfg(windows)]
+  if check_focus && !super::windows::focused_element_accepts_text() {
+    return InsertResult::NoEditableTarget;
+  }
   let mut enigo = match Enigo::new(&Settings::default()) {
     Ok(enigo) => enigo,
     Err(error) => {
