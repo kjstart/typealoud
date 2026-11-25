@@ -738,7 +738,7 @@ class VoiceInputPrompt {
     if (this.waveContainer) this.waveContainer.style.display = "none";
     if (this.copyBtn) this.copyBtn.hidden = false;
     // Safety net: don't let an always-on-top overlay sit forever if ignored.
-    this.scheduleHidePrompt(15000);
+    this.scheduleHidePrompt(30000);
   }
 
   async copyFailedText() {
@@ -761,7 +761,7 @@ class VoiceInputPrompt {
       this.statusText.textContent = t("inputPrompt.copied");
       this.statusText.style.color = "var(--status-success)";
       if (this.copyBtn) this.copyBtn.hidden = true;
-      this.scheduleHidePrompt(1200);
+      this.scheduleHidePrompt(300);
     } catch (error) {
       console.error("Clipboard copy failed:", error);
       if (recordingId !== this.recordingSessionId || this.isRecording || this.starting ||
@@ -769,7 +769,7 @@ class VoiceInputPrompt {
       this.statusText.textContent = t("inputPrompt.copyFailed");
       this.statusText.style.color = "var(--status-warning-strong)";
       if (this.copyBtn) this.copyBtn.hidden = false;
-      this.scheduleHidePrompt(15000);
+      this.scheduleHidePrompt(30000);
     }
   }
 
@@ -1496,7 +1496,7 @@ class VoiceInputPrompt {
         this.statusText.textContent = t("inputPrompt.recoverySavedHint", this.shortcutValues());
       }
       this.recoveryShownId = sessionId;
-      this.scheduleHidePrompt(15000);
+      this.scheduleHidePrompt(30000);
     }
     return true;
   }

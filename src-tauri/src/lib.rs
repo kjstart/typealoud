@@ -114,6 +114,8 @@ pub fn run() {
         if label == "main" {
           api.prevent_close();
           let _ = window.hide();
+          // macOS: with the window closed only the menu-bar item stays.
+          tray::set_dock_visible(window.app_handle(), false);
         }
       }
       // The webview never sees file drops (Tauri handles them natively), so
@@ -252,9 +254,13 @@ pub fn run() {
       // for an install set to start hidden.
       if !config.start_minimized || settings::shortcut_prompt_due(&config) {
         if let Some(window) = app.get_webview_window("main") {
+          tray::set_dock_visible(app.handle(), true);
           let _ = window.show();
           let _ = window.set_focus();
         }
+      } else {
+        // Started minimized: menu-bar item only, no Dock icon.
+        tray::set_dock_visible(app.handle(), false);
       }
 
       Ok(())

@@ -94,8 +94,27 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
   Ok(())
 }
 
+/// macOS: the Dock icon exists only while the main window is open. Regular shows
+/// it, Accessory leaves just the menu-bar item. A no-op on other platforms.
+pub fn set_dock_visible(app: &AppHandle, visible: bool) {
+  #[cfg(target_os = "macos")]
+  {
+    let policy = if visible {
+      tauri::ActivationPolicy::Regular
+    } else {
+      tauri::ActivationPolicy::Accessory
+    };
+    if let Err(error) = app.set_activation_policy(policy) {
+      log::warn!("dock: set_activation_policy failed error={error}");
+    }
+  }
+  #[cfg(not(target_os = "macos"))]
+  let _ = (app, visible);
+}
+
 pub fn show_main_window(app: &AppHandle) {
   if let Some(window) = app.get_webview_window("main") {
+    set_dock_visible(app, true);
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();

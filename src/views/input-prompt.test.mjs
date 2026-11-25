@@ -2590,7 +2590,7 @@ test("current failed final remains copyable without resurfacing older recovery",
   await h.prompt.copyFailedText();
   assert.equal(h.prompt.recoverableTranscriptions.size, 2, "Copy is not a persistence ACK");
   assert.deepEqual(copied, ["new complete final"]);
-  h.timers.fire(1200);
+  h.timers.fire(300);
   assert.equal(h.hides, 1);
 });
 
@@ -2668,7 +2668,7 @@ test("hidden old recovery neither resurfaces nor prevents a later successful dic
   assert.equal(h.prompt.recoverableTranscriptions.get(0).text, "old unsaved text");
 });
 
-test("current recovery auto-hides after fifteen seconds without deleting unsaved content", async () => {
+test("current recovery auto-hides after thirty seconds without deleting unsaved content", async () => {
   const h = await createLifecycleHarness({ invoke(command) {
     if (command === "transcribe-audio") return Promise.reject(new Error("decode failed"));
     if (command === "save-recovered-transcription") return Promise.reject(new Error("disk unavailable"));
@@ -2681,7 +2681,7 @@ test("current recovery auto-hides after fifteen seconds without deleting unsaved
   h.recorder.onstop();
   await settlePromises();
   assert.deepEqual(h.recovered, ["recover me"]);
-  h.timers.fire(15000);
+  h.timers.fire(30000);
   assert.equal(h.hides, 1);
   assert.equal(h.prompt.recoverableTranscriptions.get(1).text, "recover me");
   assert.equal(h.prompt.transcriptionInProgressCount, 0);

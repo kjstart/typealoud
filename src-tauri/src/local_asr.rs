@@ -59,8 +59,8 @@ pub const MODEL_ASSETS: &[Asset] = &[
     // X-Linked-Etag). Hugging Face is unreachable from mainland China, where
     // `ordered_urls` tries ModelScope first; everywhere else HF leads.
     urls: &[
-      "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/Qwen3-ASR-0.6B-Q8_0.gguf",
-      "https://modelscope.cn/models/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/master/Qwen3-ASR-0.6B-Q8_0.gguf",
+      "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/928ab958557df9aa2ef1c93e0e83c7ad0933fae2/Qwen3-ASR-0.6B-Q8_0.gguf",
+      "https://modelscope.cn/models/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/86222636b790fae434fb24c03c46fc817dfb27b2/Qwen3-ASR-0.6B-Q8_0.gguf",
     ],
     bundled: None,
     size: 804_749_248,
@@ -69,8 +69,8 @@ pub const MODEL_ASSETS: &[Asset] = &[
   Asset {
     rel_path: "models/mmproj-Qwen3-ASR-0.6B-Q8_0.gguf",
     urls: &[
-      "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/mmproj-Qwen3-ASR-0.6B-Q8_0.gguf",
-      "https://modelscope.cn/models/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/master/mmproj-Qwen3-ASR-0.6B-Q8_0.gguf",
+      "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/928ab958557df9aa2ef1c93e0e83c7ad0933fae2/mmproj-Qwen3-ASR-0.6B-Q8_0.gguf",
+      "https://modelscope.cn/models/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/86222636b790fae434fb24c03c46fc817dfb27b2/mmproj-Qwen3-ASR-0.6B-Q8_0.gguf",
     ],
     bundled: None,
     size: 214_392_480,
@@ -84,8 +84,8 @@ pub const LARGE_MODEL_ASSETS: &[Asset] = &[
     // Same ModelScope mirror and ordering as the 0.6B assets (probed
     // 2026-09-29: LFS object path and X-Linked-Etag equal the sha256 below).
     urls: &[
-      "https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/main/Qwen3-ASR-1.7B-Q8_0.gguf",
-      "https://modelscope.cn/models/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/master/Qwen3-ASR-1.7B-Q8_0.gguf",
+      "https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/36a678687ba7d07a74ca70ccb0e36902e005fb80/Qwen3-ASR-1.7B-Q8_0.gguf",
+      "https://modelscope.cn/models/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/fd6f16ded582f5b0789ef4aea7401707ce49746b/Qwen3-ASR-1.7B-Q8_0.gguf",
     ],
     bundled: None,
     size: 2_165_034_944,
@@ -94,8 +94,8 @@ pub const LARGE_MODEL_ASSETS: &[Asset] = &[
   Asset {
     rel_path: "models/mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
     urls: &[
-      "https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/main/mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
-      "https://modelscope.cn/models/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/master/mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
+      "https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/36a678687ba7d07a74ca70ccb0e36902e005fb80/mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
+      "https://modelscope.cn/models/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/fd6f16ded582f5b0789ef4aea7401707ce49746b/mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
     ],
     bundled: None,
     size: 355_709_344,
@@ -3188,6 +3188,18 @@ mod tests {
     for a in MODEL_ASSETS.iter().chain(LARGE_MODEL_ASSETS) {
       assert!(a.urls[0].starts_with("https://huggingface.co/"), "{}", a.rel_path);
       assert!(a.urls.iter().any(|url| is_cn_mirror(url)), "{}", a.rel_path);
+    }
+  }
+
+  #[test]
+  fn model_urls_are_pinned_to_a_commit_not_a_branch() {
+    // ggml-org re-uploaded these files on 2026-11-21, so `main` no longer matches the
+    // recorded size and sha256; a floating ref would fail verification for everyone.
+    for a in MODEL_ASSETS.iter().chain(LARGE_MODEL_ASSETS) {
+      for url in a.urls {
+        let rev = url.split("/resolve/").nth(1).and_then(|rest| rest.split('/').next()).unwrap_or("");
+        assert!(rev.len() == 40 && rev.chars().all(|c| c.is_ascii_hexdigit()), "{url}");
+      }
     }
   }
 

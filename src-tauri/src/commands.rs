@@ -932,6 +932,7 @@ pub fn apply_local_model_change(app: &AppHandle, model: &str) -> Result<(), Stri
 
 pub(crate) fn show_main_settings(app: &AppHandle, target: &str) -> Result<(), String> {
   if let Some(window) = app.get_webview_window("main") {
+    crate::tray::set_dock_visible(app, true);
     window.show().map_err(stringify_error)?;
     window.unminimize().map_err(stringify_error)?;
     window.set_focus().map_err(stringify_error)?;
