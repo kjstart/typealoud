@@ -479,6 +479,8 @@ const NON_EDITOR_WINDOW_CLASSES: &[&str] = &[
   "ApplicationFrameWindow",
   "Windows.UI.Core.CoreWindow",
   "Microsoft.UI.Content.DesktopChildSiteBridge",
+  "InputSiteWindowClass",
+  "Windows.UI.Input.InputSite.WindowClass",
   "CabinetWClass",
   "Progman",
   "WorkerW",
@@ -588,7 +590,7 @@ mod focus_guard_tests {
 
   #[test]
   fn a_bare_window_of_a_known_non_editor_app_does_not() {
-    for class in ["WinUIDesktopWin32WindowClass", "ApplicationFrameWindow", "Progman", "Shell_TrayWnd"] {
+    for class in ["WinUIDesktopWin32WindowClass", "InputSiteWindowClass", "ApplicationFrameWindow", "Progman", "Shell_TrayWnd"] {
       assert!(!focus_accepts_text(Some(50032), false, class), "{class}");
       assert!(!focus_accepts_text(Some(50033), false, class), "{class}");
     }
