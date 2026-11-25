@@ -456,13 +456,36 @@ const NON_TEXT_CONTROL_TYPES: &[i32] = &[
 /// writable value) always counts, whatever its control type: terminals report
 /// themselves as "Text" yet take input.
 #[cfg_attr(not(windows), allow(dead_code))]
-pub(super) fn focus_accepts_text(control_type: Option<i32>, offers_text_editing: bool) -> bool {
+pub(super) fn focus_accepts_text(control_type: Option<i32>, offers_text_editing: bool, class_name: &str) -> bool {
   match control_type {
     None => true,
     Some(_) if offers_text_editing => true,
+    // The whole window has focus and nothing inside it does: a photo viewer, the
+    // Settings app, the desktop. Self-drawn editors and terminals look the same
+    // from here, so only window classes known not to be editors count.
+    Some(WINDOW | PANE) => !NON_EDITOR_WINDOW_CLASSES.contains(&class_name),
     Some(id) => !NON_TEXT_CONTROL_TYPES.contains(&id),
   }
 }
+
+const WINDOW: i32 = 50032;
+const PANE: i32 = 50033;
+
+/// Window classes whose app windows hold no editor of their own: WinUI and UWP
+/// hosts (Photos was measured on 2026-11-25), Explorer folders, the desktop and
+/// the taskbar. An editor inside such an app reports its own Edit element.
+const NON_EDITOR_WINDOW_CLASSES: &[&str] = &[
+  "WinUIDesktopWin32WindowClass",
+  "ApplicationFrameWindow",
+  "Windows.UI.Core.CoreWindow",
+  "Microsoft.UI.Content.DesktopChildSiteBridge",
+  "CabinetWClass",
+  "Progman",
+  "WorkerW",
+  "Shell_TrayWnd",
+  "Shell_SecondaryTrayWnd",
+  "TaskListThumbnailWnd",
+];
 
 /// Ask UI Automation whether the focused element in the foreground app can take
 /// text. True whenever it cannot tell (no answer within 1.5 s, COM failure,
@@ -478,13 +501,15 @@ pub fn focused_element_accepts_text() -> bool {
     let _ = tx.send(query_focused_element());
   });
   match rx.recv_timeout(Duration::from_millis(1500)) {
-    Ok((control_type, offers_text)) => {
-      let accepts = focus_accepts_text(control_type, offers_text);
+    Ok((control_type, offers_text, class_name)) => {
+      let accepts = focus_accepts_text(control_type, offers_text, &class_name);
+      // Window classes name an app, never what the user said.
       log::info!(
         target: "typealoud_lifecycle",
-        "insert focus control_type={:?} offers_text={} accepts={}",
+        "insert focus control_type={:?} offers_text={} class={} accepts={}",
         control_type,
         offers_text,
+        class_name,
         accepts
       );
       accepts
@@ -497,7 +522,7 @@ pub fn focused_element_accepts_text() -> bool {
 }
 
 #[cfg(windows)]
-fn query_focused_element() -> (Option<i32>, bool) {
+fn query_focused_element() -> (Option<i32>, bool, String) {
   use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
   };
@@ -517,15 +542,30 @@ fn query_focused_element() -> (Option<i32>, bool) {
         .ok()
         .and_then(|pattern| pattern.CurrentIsReadOnly().ok())
         .is_some_and(|read_only| !read_only.as_bool());
-      Some((control_type, has_text_pattern || writable_value))
+      let class_name = element.CurrentClassName().map(|name| name.to_string()).unwrap_or_default();
+      Some((control_type, has_text_pattern || writable_value, class_name))
     })();
     if initialized {
       CoUninitialize();
     }
     match answer {
-      Some((control_type, offers_text)) => (Some(control_type), offers_text),
-      None => (None, false),
+      Some((control_type, offers_text, class_name)) => (Some(control_type), offers_text, class_name),
+      None => (None, false, String::new()),
     }
+  }
+}
+
+/// Diagnostics: the focused element's UIA framework, class and name length.
+#[cfg(windows)]
+#[cfg_attr(not(test), allow(dead_code))]
+fn query_focused_framework() -> Option<(String, String)> {
+  use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
+  use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation};
+  unsafe {
+    let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    let automation: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+    let element = automation.GetFocusedElement().ok()?;
+    Some((element.CurrentFrameworkId().ok()?.to_string(), element.CurrentClassName().ok()?.to_string()))
   }
 }
 
@@ -535,30 +575,40 @@ mod focus_guard_tests {
 
   #[test]
   fn an_unreadable_focus_is_not_a_block_verdict() {
-    assert!(focus_accepts_text(None, false));
+    assert!(focus_accepts_text(None, false, ""));
   }
 
   #[test]
   fn editors_and_self_drawn_surfaces_accept_text() {
     // Edit, Document, ComboBox, Custom, Group, Window, Pane
     for id in [50004, 50030, 50003, 50025, 50026, 50032, 50033] {
-      assert!(focus_accepts_text(Some(id), false), "{id}");
+      assert!(focus_accepts_text(Some(id), false, "SomeEditorClass"), "{id}");
     }
+  }
+
+  #[test]
+  fn a_bare_window_of_a_known_non_editor_app_does_not() {
+    for class in ["WinUIDesktopWin32WindowClass", "ApplicationFrameWindow", "Progman", "Shell_TrayWnd"] {
+      assert!(!focus_accepts_text(Some(50032), false, class), "{class}");
+      assert!(!focus_accepts_text(Some(50033), false, class), "{class}");
+    }
+    // The same classes with a text pattern are an editor after all (Windows Terminal).
+    assert!(focus_accepts_text(Some(50032), true, "WinUIDesktopWin32WindowClass"));
   }
 
   #[test]
   fn buttons_list_items_and_icons_do_not() {
     // Button, ListItem (desktop icons), TabItem, Text, MenuItem, TreeItem
     for id in [50000, 50007, 50019, 50020, 50011, 50024] {
-      assert!(!focus_accepts_text(Some(id), false), "{id}");
+      assert!(!focus_accepts_text(Some(id), false, ""), "{id}");
     }
   }
 
   #[test]
   fn a_text_pattern_or_writable_value_wins_over_the_control_type() {
     // Windows Terminal's control reports itself as Text yet takes input.
-    assert!(focus_accepts_text(Some(50020), true));
-    assert!(focus_accepts_text(Some(50007), true));
+    assert!(focus_accepts_text(Some(50020), true, ""));
+    assert!(focus_accepts_text(Some(50007), true, ""));
   }
 
   /// Manual: `cargo test live_focus_probe -- --ignored --nocapture`, then click
@@ -568,7 +618,8 @@ mod focus_guard_tests {
   #[ignore = "Needs an interactive desktop; prints what UI Automation reports"]
   fn live_focus_probe() {
     std::thread::sleep(std::time::Duration::from_secs(5));
-    let (control_type, offers_text) = super::query_focused_element();
-    println!("control_type={control_type:?} offers_text={offers_text} accepts={}", focus_accepts_text(control_type, offers_text));
+    let (control_type, offers_text, class_name) = super::query_focused_element();
+    println!("control_type={control_type:?} offers_text={offers_text} class={class_name} accepts={}", focus_accepts_text(control_type, offers_text, &class_name));
+    println!("framework={:?}", super::query_focused_framework());
   }
 }
