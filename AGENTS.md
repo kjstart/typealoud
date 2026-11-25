@@ -241,7 +241,7 @@ cloud provider (OpenRouter/OpenAI), and inserts the text into the focused app.
   ("Cloud", "cursor", "linked in"), judged by the embedded `data/english-words.txt`; identifiers,
   paths and URLs are skipped. A sound-alike made of real words ("parrot kit") belongs in
   `scrub.rs`'s `correct_known_terms` or a user rule, not here.
-- `polish.rs` — optional AI polish: one OpenAI-compatible Chat Completions call (or an Anthropic Messages call when the address is api.anthropic.com or ends in /v1/messages) (default DeepSeek
+- `polish.rs` — optional AI polish: one OpenAI-compatible Chat Completions call (or an Anthropic Messages call when the user picks the "anthropic" API format; never guessed from the address) (default DeepSeek
   `deepseek-v4-flash`, thinking disabled for DeepSeek) on the finished text, after `prepare_final_transcription`
   and before the History write (`polish_final` in `commands.rs`; also manual retries, not the Files page).
   Off by default; config lives in `AppConfig.polish`, edited only through `get/save_polish_settings`

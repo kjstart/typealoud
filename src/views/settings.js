@@ -1696,6 +1696,7 @@ function readPolishForm() {
   const value = (id) => document.getElementById(id)?.value ?? "";
   return {
     enabled: !!document.getElementById("polishEnabled")?.checked,
+    apiFormat: value("polishApiFormat") || "openai",
     baseUrl: value("polishBaseUrl"),
     apiKey: value("polishApiKey"),
     model: value("polishModel"),
@@ -1713,6 +1714,7 @@ function fillPolishForm(polish) {
   };
   const enabled = document.getElementById("polishEnabled");
   if (enabled) enabled.checked = !!polish.enabled;
+  set("polishApiFormat", polish.apiFormat || "openai");
   set("polishBaseUrl", polish.baseUrl);
   set("polishApiKey", polish.apiKey);
   set("polishModel", polish.model);

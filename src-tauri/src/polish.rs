@@ -36,6 +36,13 @@ fn default_model() -> String {
   DEFAULT_MODEL.into()
 }
 
+pub const FORMAT_OPENAI: &str = "openai";
+pub const FORMAT_ANTHROPIC: &str = "anthropic";
+
+fn default_api_format() -> String {
+  FORMAT_OPENAI.into()
+}
+
 fn default_intensity() -> String {
   INTENSITY_LIGHT.into()
 }
@@ -45,7 +52,13 @@ fn default_intensity() -> String {
 pub struct PolishConfig {
   #[serde(default)]
   pub enabled: bool,
-  /// OpenAI-compatible base URL; `/chat/completions` is appended unless present.
+  /// Which request shape the service speaks: "openai" (Chat Completions, the
+  /// default) or "anthropic" (Messages API). Chosen by the user, never guessed
+  /// from the address: relays and proxies have arbitrary hostnames.
+  #[serde(default = "default_api_format")]
+  pub api_format: String,
+  /// Base URL; `/chat/completions` (openai) or `/v1/messages` (anthropic) is
+  /// appended unless present.
   #[serde(default = "default_base_url")]
   pub base_url: String,
   #[serde(default)]
@@ -71,6 +84,7 @@ impl Default for PolishConfig {
   fn default() -> Self {
     Self {
       enabled: false,
+      api_format: default_api_format(),
       base_url: default_base_url(),
       api_key: String::new(),
       model: default_model(),
@@ -92,6 +106,9 @@ impl PolishConfig {
     }
     if !(self.base_url.starts_with("https://") || self.base_url.starts_with("http://")) {
       bail!("the address must start with https:// or http://");
+    }
+    if self.api_format != FORMAT_ANTHROPIC {
+      self.api_format = default_api_format();
     }
     self.api_key = self.api_key.trim().to_string();
     self.model = self.model.trim().to_string();
@@ -218,16 +235,14 @@ pub fn plan(config: &PolishConfig, text: &str) -> Option<Plan> {
 }
 
 /// Anthropic's Messages API has its own request and response shape and auth
-/// header, so it is picked from the address (api.anthropic.com or a `/messages`
-/// path) rather than from a setting.
-pub fn is_anthropic(base_url: &str) -> bool {
-  let base = base_url.trim().trim_end_matches('/').to_ascii_lowercase();
-  base.contains("anthropic.com") || base.ends_with("/v1/messages")
+/// header; the user picks it in Settings.
+pub fn is_anthropic(config: &PolishConfig) -> bool {
+  config.api_format == FORMAT_ANTHROPIC
 }
 
-pub fn endpoint(base_url: &str) -> String {
+pub fn endpoint(base_url: &str, api_format: &str) -> String {
   let base = base_url.trim().trim_end_matches('/');
-  if is_anthropic(base) {
+  if api_format == FORMAT_ANTHROPIC {
     return if base.ends_with("/messages") {
       base.to_string()
     } else if base.ends_with("/v1") {
@@ -253,7 +268,7 @@ fn is_deepseek(config: &PolishConfig) -> bool {
 }
 
 fn request_body(config: &PolishConfig, plan: &Plan) -> Value {
-  if is_anthropic(&config.base_url) {
+  if is_anthropic(config) {
     // No temperature: some current Claude models reject it, and a rewrite
     // does not need it.
     return json!({
@@ -284,8 +299,8 @@ async fn request(client: &reqwest::Client, config: &PolishConfig, plan: &Plan) -
     Mode::Standard => standard_timeout(plan.user.chars().count()),
     Mode::Command => COMMAND_TIMEOUT,
   };
-  let anthropic = is_anthropic(&config.base_url);
-  let builder = client.post(endpoint(&config.base_url));
+  let anthropic = is_anthropic(config);
+  let builder = client.post(endpoint(&config.base_url, &config.api_format));
   let builder = if anthropic {
     builder
       .header("x-api-key", config.api_key.trim())
@@ -467,20 +482,25 @@ mod tests {
 
   #[test]
   fn endpoint_appends_the_path_once() {
-    assert_eq!(endpoint("https://api.deepseek.com"), "https://api.deepseek.com/chat/completions");
-    assert_eq!(endpoint("https://api.openai.com/v1/"), "https://api.openai.com/v1/chat/completions");
-    assert_eq!(endpoint("http://localhost:11434/v1/chat/completions"), "http://localhost:11434/v1/chat/completions");
+    assert_eq!(endpoint("https://api.deepseek.com", "openai"), "https://api.deepseek.com/chat/completions");
+    assert_eq!(endpoint("https://api.openai.com/v1/", "openai"), "https://api.openai.com/v1/chat/completions");
+    assert_eq!(endpoint("http://localhost:11434/v1/chat/completions", "openai"), "http://localhost:11434/v1/chat/completions");
   }
 
   #[test]
-  fn anthropic_is_detected_from_the_address_and_gets_its_own_shape() {
-    assert_eq!(endpoint("https://api.anthropic.com"), "https://api.anthropic.com/v1/messages");
-    assert_eq!(endpoint("https://api.anthropic.com/v1/"), "https://api.anthropic.com/v1/messages");
-    assert_eq!(endpoint("https://proxy.example.com/v1/messages"), "https://proxy.example.com/v1/messages");
-    assert!(!is_anthropic("https://api.openai.com/v1"));
+  fn anthropic_format_is_chosen_not_guessed_and_gets_its_own_shape() {
+    assert_eq!(endpoint("https://api.anthropic.com", "anthropic"), "https://api.anthropic.com/v1/messages");
+    assert_eq!(endpoint("https://api.anthropic.com/v1/", "anthropic"), "https://api.anthropic.com/v1/messages");
+    assert_eq!(endpoint("https://relay.example.com/v1/messages", "anthropic"), "https://relay.example.com/v1/messages");
+    // An anthropic address under the openai format stays openai: only the setting decides.
+    assert_eq!(endpoint("https://api.anthropic.com", "openai"), "https://api.anthropic.com/chat/completions");
+    assert!(!is_anthropic(&config()));
+    let odd = PolishConfig { api_format: "nonsense".into(), ..config() }.normalized().unwrap();
+    assert_eq!(odd.api_format, FORMAT_OPENAI);
 
     let mut cfg = config();
-    cfg.base_url = "https://api.anthropic.com".into();
+    cfg.api_format = FORMAT_ANTHROPIC.into();
+    cfg.base_url = "https://relay.example.com".into();
     cfg.model = "claude-haiku-5-5".into();
     let plan = plan(&cfg, "嗯那个我们明天下午三点开会").unwrap();
     let body = request_body(&cfg, &plan);

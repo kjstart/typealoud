@@ -629,8 +629,21 @@
             <div id="polishFields" class="hidden">
               <div class="setting-item">
                 <div class="setting-info">
+                  <div class="setting-title" data-i18n="settings.polish.apiFormat">API format</div>
+                  <div class="setting-description" data-i18n="settings.polish.apiFormatHint">Which request format the service speaks. Claude uses Anthropic; most others (OpenAI, DeepSeek, local servers) use OpenAI-compatible.</div>
+                </div>
+                <div class="setting-control">
+                  <select class="input model-select" id="polishApiFormat">
+                    <option value="openai" data-i18n="settings.polish.apiFormatOpenai">OpenAI-compatible</option>
+                    <option value="anthropic" data-i18n="settings.polish.apiFormatAnthropic">Anthropic (Claude)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-info">
                   <div class="setting-title" data-i18n="settings.polish.baseUrl">Service address</div>
-                  <div class="setting-description" data-i18n="settings.polish.baseUrlHint">Any OpenAI-compatible service, for example https://api.deepseek.com or https://api.openai.com/v1.</div>
+                  <div class="setting-description" data-i18n="settings.polish.baseUrlHint">For example https://api.deepseek.com, https://api.openai.com/v1 or https://api.anthropic.com.</div>
                 </div>
                 <div class="setting-control">
                   <input type="text" class="input" id="polishBaseUrl" placeholder="https://api.deepseek.com" autocomplete="off" autocapitalize="off" spellcheck="false">

@@ -426,9 +426,14 @@
           title: "AI polish",
           description:
             "Send the finished text to an AI model you choose before it is inserted: removes filler words and keeps only the final wording after you correct yourself. Only text is sent, never audio.",
+          apiFormat: "API format",
+          apiFormatHint:
+            "Which request format the service speaks. Claude uses Anthropic; most others (OpenAI, DeepSeek, local servers) use OpenAI-compatible.",
+          apiFormatOpenai: "OpenAI-compatible",
+          apiFormatAnthropic: "Anthropic (Claude)",
           baseUrl: "Service address",
           baseUrlHint:
-            "Any OpenAI-compatible service, for example https://api.deepseek.com or https://api.openai.com/v1, or Claude at https://api.anthropic.com (use a Claude model name such as claude-haiku-5-5).",
+            "For example https://api.deepseek.com, https://api.openai.com/v1 or https://api.anthropic.com.",
           apiKey: "API key",
           model: "Model",
           intensity: "Strength",
@@ -1152,9 +1157,13 @@
           title: "AI 润色",
           description:
             "上屏之前，把识别出的文字发给你选的 AI 模型整理一遍：去掉语气词，说话中途改口时只保留最后的说法。只发送文字，不发送录音。",
+          apiFormat: "接口格式",
+          apiFormatHint: "服务用哪种请求格式。Claude 选 Anthropic；其他大多数（OpenAI、DeepSeek、本地服务）选兼容 OpenAI。",
+          apiFormatOpenai: "兼容 OpenAI",
+          apiFormatAnthropic: "Anthropic（Claude）",
           baseUrl: "服务地址",
           baseUrlHint:
-            "任何兼容 OpenAI 接口的服务，例如 https://api.deepseek.com 或 https://api.openai.com/v1；也可以填 Claude 的 https://api.anthropic.com（模型名填 Claude 的，例如 claude-haiku-5-5）。",
+            "例如 https://api.deepseek.com、https://api.openai.com/v1 或 https://api.anthropic.com。",
           apiKey: "API Key",
           model: "模型",
           intensity: "润色强度",
