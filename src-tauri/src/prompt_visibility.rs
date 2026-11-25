@@ -38,7 +38,42 @@ fn set_native_visibility(hwnd: windows_sys::Win32::Foundation::HWND, visible: bo
   // windows without moving the caret out of the application being dictated into.
   let flags = SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW;
   let ok = unsafe { SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags) };
-  if ok == 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+  if ok == 0 {
+    return Err(std::io::Error::last_os_error());
+  }
+  keep_on_top(hwnd);
+  Ok(())
+}
+
+/// Another topmost window that is activated (a chat app, a screenshot tool, a
+/// player) rises above this one, which hid the overlay and its Copy button
+/// behind it. While the prompt is visible, put it back on top a few times a
+/// second. It never activates, so it cannot take focus from the user's app.
+#[cfg(windows)]
+static RAISE_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(windows)]
+fn keep_on_top(hwnd: windows_sys::Win32::Foundation::HWND) {
+  use std::sync::atomic::Ordering;
+  use windows_sys::Win32::UI::WindowsAndMessaging::{
+    IsWindowVisible, SetWindowPos, HWND_TOPMOST, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+  };
+
+  // A newer show supersedes the watcher of an older one.
+  let generation = RAISE_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+  let handle = hwnd as usize;
+  std::thread::spawn(move || {
+    let hwnd = handle as windows_sys::Win32::Foundation::HWND;
+    loop {
+      std::thread::sleep(std::time::Duration::from_millis(250));
+      if RAISE_GENERATION.load(Ordering::SeqCst) != generation || unsafe { IsWindowVisible(hwnd) } == 0 {
+        break;
+      }
+      unsafe {
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_ASYNCWINDOWPOS);
+      }
+    }
+  });
 }
 
 #[cfg(all(test, windows))]
