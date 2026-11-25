@@ -19,6 +19,7 @@ TypeAloud has no account and no sign-up.
 | --- | --- | --- |
 | At startup and every 24 hours | GitHub (`github.com`) or the TypeAloud website (`typealoud.app`) | A request for the latest version manifest. No data about you or your use. |
 | When you download a local model | Hugging Face, ModelScope, GitHub or the TypeAloud website (`typealoud.app`) | Ordinary file downloads. |
+| After an app update, if an installed local Qwen runtime needs replacement | GitHub or the TypeAloud website | Only the updated runtime files. Downloads retry later if offline; no recordings or model weights are sent. |
 | Only if you choose OpenAI | OpenAI, directly with your own key | The recorded audio of each dictation, and the dictionary's words (for an automatic replacement, only the corrected spelling). TypeAloud's servers are not involved. |
 | Only if you choose OpenRouter | OpenRouter, directly with your own key; OpenRouter passes the audio to the company running the chosen model (for Qwen, a hosting provider such as DeepInfra; for MAI, Microsoft Azure) | The recorded audio of each dictation, the app's name in OpenRouter's attribution headers, and, with the MAI model only, the dictionary's words (for an automatic replacement, only the corrected spelling). TypeAloud's servers are not involved. |
 | Only if you turn on AI polish | The service address you enter (DeepSeek, OpenAI or any OpenAI-compatible server), directly with your own key | The text of each dictation (never audio), sent after transcription and before it is inserted. Also sent: the polish prompt, which includes your command word and extra instructions if you set any. The dictionary is not sent. TypeAloud's servers are not involved. Off by default. |
@@ -108,6 +109,7 @@ TypeAloud 没有账号，也不需要注册。
 | --- | --- | --- |
 | 启动时，之后每 24 小时 | GitHub（`github.com`）或 TypeAloud 官网（`typealoud.app`） | 请求最新版本清单，不含任何关于你或你使用情况的数据 |
 | 下载本地模型时 | Hugging Face、ModelScope、GitHub 或 TypeAloud 官网（`typealoud.app`） | 普通的文件下载 |
+| App 更新后，已安装的本地千问运行包需要更新时 | GitHub 或 TypeAloud 官网 | 只下载新的运行包。离线时稍后重试，不发送录音或模型权重。 |
 | 仅当你选择 OpenAI | OpenAI，用你自己的 key 直连 | 每次听写的录音和词典，不经过 TypeAloud 的服务器 |
 | 仅当你选择 OpenRouter | OpenRouter，用你自己的 key 直连；OpenRouter 再把录音交给运行所选模型的公司（千问是 DeepInfra 等托管商，MAI 是微软 Azure） | 每次听写的录音、OpenRouter 署名请求头里的应用名称；只有用 MAI 模型时才发送词典。不经过 TypeAloud 的服务器 |
 | 仅当你开启 AI 润色 | 你填写的服务地址（DeepSeek、OpenAI 或任何兼容 OpenAI 接口的服务），用你自己的 key 直连 | 每次听写的文字（绝不含录音），在转写之后、上屏之前发送；同时发送润色提示词（含你设置的指令词和追加要求）。不发送词典，不经过 TypeAloud 的服务器。默认关闭 |
