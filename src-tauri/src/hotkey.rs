@@ -374,6 +374,10 @@ struct Lock {
   expires_at: Instant,
 }
 
+/// `VK_VOLUME_MUTE` through `VK_MEDIA_PLAY_PAUSE`; rdev has no names for them.
+#[cfg(windows)]
+const AUDIO_CONTROL_VKS: std::ops::RangeInclusive<u32> = 0xAD..=0xB3;
+
 fn is_modifier_key(key: Key) -> bool {
   matches!(
     key,
@@ -511,6 +515,16 @@ impl HotkeyState {
   }
 
   fn apply_event(&mut self, event: KeyEvent, now: Instant) {
+    // Volume and media keys never belong to a shortcut the user is typing, and
+    // some headsets send a run of volume keys themselves when the microphone
+    // opens, which would otherwise cancel the recording that opened it.
+    #[cfg(windows)]
+    if matches!(
+      event,
+      KeyEvent::Press(Key::Unknown(code)) | KeyEvent::Release(Key::Unknown(code)) if AUDIO_CONTROL_VKS.contains(&code)
+    ) {
+      return;
+    }
     match event {
       KeyEvent::NonModifierPress => self.handle_non_modifier_press(now),
       KeyEvent::Press(key) => {
@@ -1844,6 +1858,40 @@ mod tests {
     assert!(!state.take_caps_replay(), "a long hold is speech, not a case toggle");
     state.handle_tick(t0 + ms(900) + STOP_DEBOUNCE + ms(1));
     assert_eq!(state.drain_actions(), vec![Action::Stop]);
+  }
+
+  // A Voyager Focus on a BT700 raises the volume key by key when the microphone
+  // opens, the first one about 450 ms after the shortcut goes down.
+  #[cfg(windows)]
+  #[test]
+  fn volume_and_media_keys_do_not_cancel_a_recording() {
+    // VK_VOLUME_MUTE through VK_MEDIA_PLAY_PAUSE.
+    for code in 0xAD..=0xB3 {
+      let mut state = caps_state();
+      let t0 = Instant::now();
+      state.handle_event(KeyEvent::Press(Key::CapsLock), t0);
+      assert_eq!(state.drain_actions(), vec![Action::Start]);
+      state.handle_event(KeyEvent::Press(Key::Unknown(code)), t0 + ms(450));
+      state.handle_event(KeyEvent::Release(Key::Unknown(code)), t0 + ms(455));
+      assert_eq!(state.drain_actions(), vec![], "key {code:#x}");
+      state.handle_event(KeyEvent::Release(Key::CapsLock), t0 + ms(3000));
+      state.handle_tick(t0 + ms(3000) + STOP_DEBOUNCE + ms(1));
+      assert_eq!(state.drain_actions(), vec![Action::Stop], "key {code:#x}");
+    }
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn a_volume_key_between_two_taps_keeps_the_tap() {
+    let mut state = caps_state();
+    let t0 = Instant::now();
+    state.handle_event(KeyEvent::Press(Key::CapsLock), t0);
+    state.handle_event(KeyEvent::Release(Key::CapsLock), t0 + ms(100));
+    let _ = state.drain_actions();
+    state.handle_event(KeyEvent::Press(Key::Unknown(0xAF)), t0 + ms(150));
+    assert_eq!(state.drain_actions(), vec![]);
+    state.handle_event(KeyEvent::Press(Key::CapsLock), t0 + ms(200));
+    assert!(matches!(state.drain_actions().last(), Some(Action::Lock(_))));
   }
 
   #[cfg(windows)]

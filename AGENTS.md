@@ -186,6 +186,10 @@ cloud provider (OpenRouter/OpenAI), and inserts the text into the focused app.
   it when it comes up, not when it goes down, and not at all if another key is pressed meanwhile:
   Right Option+Left Arrow (word jump) must not end a hands-free dictation. A lock the
   frontend ended itself is released through `release_recording_lock`.
+  On Windows the volume and media keys (`AUDIO_CONTROL_VKS`) are invisible to the state machine: a
+  Voyager Focus on a BT700 sends ten Volume Up presses when the microphone opens, the first about
+  450 ms after the shortcut, which the combo-key rule took as typing and cancelled the recording
+  (2026-11-26). Keep passing them on to the system.
   On Windows a low-level hook can miss a key-up (Ctrl+Shift switching input methods, focus moving
   to an elevated window), which left the shortcut "held" so neither letting go nor pressing it
   again stopped the recording (issue #21). While any modifier is believed down, the state thread
