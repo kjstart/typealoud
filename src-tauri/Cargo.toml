@@ -1,6 +1,6 @@
 [package]
 name = "typealoud"
-version = "1.33.1"
+version = "1.33.2"
 description = "Voice input method software"
 authors = ["Tao"]
 license = "GPL-3.0-only"
@@ -13,6 +13,9 @@ rust-version = "1.82"
 [lib]
 name = "typealoud_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+windows-desktop-test = []
 
 [build-dependencies]
 tauri-build = { version = "2.7.3", features = [] }
@@ -65,7 +68,7 @@ enigo = "0.3.0"
 # grab (not listen) lets the hook swallow Alt's auto-repeat key-downs, see hotkey.rs.
 rdev = { version = "0.5", features = ["unstable_grab"] }
 arboard = { version = "3.6.1", default-features = false }
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Storage_Packaging_Appx", "Win32_System_Registry", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_Storage_Packaging_Appx", "Win32_System_Registry", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 # WinRT StartupTask for "Start with system" in the Store package. Same version
 # webview2-com already pulls in.
 windows = { version = "0.62.2", features = ["ApplicationModel", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_System_Com", "Win32_System_Variant", "Win32_UI_Accessibility"] }
